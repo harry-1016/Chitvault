@@ -159,13 +159,13 @@ const Badge=({color,children})=><span style={{background:`${color}22`,color,bord
 const Modal=({open,onClose,title,children,width=500})=>{
   if(!open)return null;
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}} onClick={onClose}>
-      <div style={{background:G.surface,border:`1px solid ${G.border}`,borderRadius:18,padding:24,width:`min(100%,${width}px)`,maxHeight:"90vh",overflowY:"auto",animation:"fadeIn 0.2s ease"}} onClick={e=>e.stopPropagation()}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-          <span style={{fontSize:17,fontWeight:800}}>{title}</span>
-          <button onClick={onClose} style={{background:G.card,border:`1px solid ${G.border}`,color:G.textSecondary,width:30,height:30,borderRadius:8,cursor:"pointer",fontSize:16}}>×</button>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"env(safe-area-inset-top,16px) 12px 80px",overflowY:"auto"}} onClick={onClose}>
+      <div style={{background:G.surface,border:`1px solid ${G.border}`,borderRadius:18,padding:20,width:`min(100%,${width}px)`,marginTop:16,animation:"fadeIn 0.2s ease",flexShrink:0}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,position:"sticky",top:0,background:G.surface,zIndex:1,paddingBottom:12,borderBottom:`1px solid ${G.border}`}}>
+          <span style={{fontSize:16,fontWeight:800}}>{title}</span>
+          <button onClick={onClose} style={{background:G.card,border:`1px solid ${G.border}`,color:G.textSecondary,width:30,height:30,borderRadius:8,cursor:"pointer",fontSize:16,flexShrink:0}}>×</button>
         </div>
-        {children}
+        <div style={{paddingTop:4}}>{children}</div>
       </div>
     </div>
   );
@@ -235,6 +235,7 @@ const NAV=[
   {id:"receipts",icon:"▣",label:"Receipts"},
   {id:"reminders",icon:"💬",label:"WhatsApp"},
   {id:"reports",icon:"▤",label:"Reports"},
+  {id:"import",icon:"🪄",label:"Smart Import"},
   {id:"users",icon:"🔐",label:"Users",ownerOnly:true},
 ];
 
@@ -420,11 +421,203 @@ function Groups({groups,setGroups,idToken,showToast}){
   );
 }
 
+// ── MEMBER DETAIL VIEW ────────────────────────────────────────────────────────
+function MemberDetail({m,groups,collections,onBack,showToast}){
+  const grp=groups.find(g=>g.name===m.group)||{};
+  const paid=Number(m.paid)||0;
+  const pending=Number(m.pending)||0;
+  const duration=Number(grp.duration)||paid+pending||1;
+  const total=paid+pending;
+  const paidPct=Math.min(100,Math.round((paid/Math.max(total,1))*100));
+  const monthlyAmt=Number(m.monthlyAmount||grp.amount||0);
+  const paidAmt=paid*monthlyAmt;
+  const pendingAmt=pending*monthlyAmt;
+  const totalAmt=total*monthlyAmt;
+  // Payment history for this member from collections
+  const myPayments=collections.filter(c=>c.member===m.name).sort((a,b)=>b.date?.localeCompare(a.date||"")||0);
+
+  return(
+    <div className="page-enter">
+      {/* Back header */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
+        <button onClick={onBack} style={{background:G.card,border:`1px solid ${G.border}`,color:G.textPrimary,width:36,height:36,borderRadius:10,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>←</button>
+        <div>
+          <h2 style={{fontSize:20,fontWeight:800}}>{m.name}</h2>
+          <p style={{color:G.textSecondary,fontSize:12}}>Member Profile</p>
+        </div>
+      </div>
+
+      {/* Avatar + status */}
+      <Card style={{marginBottom:14,padding:20}}>
+        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:16}}>
+          <div style={{width:56,height:56,borderRadius:16,background:`linear-gradient(135deg,${G.accent},${G.blue})`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:24,color:"#000",flexShrink:0}}>{m.name?.[0]?.toUpperCase()}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <p style={{fontWeight:800,fontSize:18}}>{m.name}</p>
+            <p style={{color:G.textSecondary,fontSize:13,marginTop:2}}>📞 {m.mobile||"—"}</p>
+            {m.address&&<p style={{color:G.textMuted,fontSize:12,marginTop:2}}>📍 {m.address}</p>}
+          </div>
+          <Badge color={pending>0?G.red:G.accent}>{pending>0?"Defaulter":"Active"}</Badge>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {m.joining&&<div style={{background:G.surface,borderRadius:9,padding:"8px 12px"}}><p style={{fontSize:10,color:G.textMuted,marginBottom:2}}>JOINED</p><p style={{fontWeight:700,fontSize:13}}>{m.joining}</p></div>}
+          {m.nominee&&<div style={{background:G.surface,borderRadius:9,padding:"8px 12px"}}><p style={{fontSize:10,color:G.textMuted,marginBottom:2}}>NOMINEE</p><p style={{fontWeight:700,fontSize:13}}>{m.nominee}</p></div>}
+          {m.aadhaar&&<div style={{background:G.surface,borderRadius:9,padding:"8px 12px"}}><p style={{fontSize:10,color:G.textMuted,marginBottom:2}}>AADHAAR</p><p style={{fontWeight:700,fontSize:13}}>{m.aadhaar}</p></div>}
+          {m.pan&&<div style={{background:G.surface,borderRadius:9,padding:"8px 12px"}}><p style={{fontSize:10,color:G.textMuted,marginBottom:2}}>PAN</p><p style={{fontWeight:700,fontSize:13}}>{m.pan}</p></div>}
+        </div>
+      </Card>
+
+      {/* Chit Group Info */}
+      <Card style={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+          <div>
+            <p style={{fontSize:10,color:G.textSecondary,fontWeight:700,letterSpacing:1,marginBottom:4}}>CHIT GROUP</p>
+            <p style={{fontWeight:800,fontSize:16,color:G.accent}}>{m.group||"—"}</p>
+          </div>
+          {grp.active&&<Badge color={G.accent}>Active</Badge>}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+          {[["Monthly",`₹${monthlyAmt.toLocaleString("en-IN")}`,G.accent],["Duration",`${duration} mo`,G.blue],["Members",grp.members||"—",G.purple]].map(([k,v,c])=>(
+            <div key={k} style={{background:G.surface,borderRadius:9,padding:"10px 8px",textAlign:"center"}}>
+              <p style={{fontSize:10,color:G.textMuted,marginBottom:4}}>{k}</p>
+              <p style={{fontWeight:800,fontSize:13,color:c,fontFamily:"'JetBrains Mono',monospace"}}>{v}</p>
+            </div>
+          ))}
+        </div>
+        {grp.start&&<p style={{fontSize:11,color:G.textMuted,marginBottom:14}}>📅 {grp.start} → {grp.end||"ongoing"}</p>}
+
+        {/* Payment progress bar */}
+        <div style={{marginBottom:6}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+            <span style={{fontSize:12,fontWeight:700,color:G.textSecondary}}>Payment Progress</span>
+            <span style={{fontSize:12,fontWeight:800,color:G.accent}}>{paid}/{total} months ({paidPct}%)</span>
+          </div>
+          <div style={{height:10,background:G.border,borderRadius:5,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${paidPct}%`,background:`linear-gradient(90deg,${G.accent},${G.blue})`,borderRadius:5,transition:"width 0.6s ease"}}/>
+          </div>
+          {pending>0&&<p style={{fontSize:11,color:G.red,marginTop:5,fontWeight:600}}>⚠ {pending} month{pending>1?"s":""} pending</p>}
+        </div>
+
+        {/* Month-by-month bubbles */}
+        <div style={{marginTop:14}}>
+          <p style={{fontSize:10,color:G.textSecondary,fontWeight:700,letterSpacing:1,marginBottom:8}}>MONTH-BY-MONTH</p>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {Array.from({length:total||duration},(_,i)=>{
+              const isPaid=i<paid;
+              const isPending=i>=paid&&i<paid+pending;
+              return(
+                <div key={i} style={{width:32,height:32,borderRadius:8,
+                  background:isPaid?"#00D4AA22":isPending?G.redSoft:G.surface,
+                  border:`1px solid ${isPaid?G.accent:isPending?G.red:G.border}`,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:10,fontWeight:700,
+                  color:isPaid?G.accent:isPending?G.red:G.textMuted}}>
+                  {i+1}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",gap:14,marginTop:8}}>
+            <span style={{fontSize:11,color:G.textSecondary,display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:3,background:"#00D4AA22",border:`1px solid ${G.accent}`,display:"inline-block"}}/>Paid</span>
+            <span style={{fontSize:11,color:G.textSecondary,display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:3,background:G.redSoft,border:`1px solid ${G.red}`,display:"inline-block"}}/>Pending</span>
+            <span style={{fontSize:11,color:G.textSecondary,display:"flex",alignItems:"center",gap:4}}><span style={{width:10,height:10,borderRadius:3,background:G.surface,border:`1px solid ${G.border}`,display:"inline-block"}}/>Remaining</span>
+          </div>
+        </div>
+      </Card>
+
+      {/* Passbook Table */}
+      <Card style={{marginBottom:14,padding:0,overflow:"hidden"}}>
+        <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${G.border}`}}>
+          <p style={{fontSize:10,color:G.textSecondary,fontWeight:700,letterSpacing:1}}>📒 PASSBOOK</p>
+        </div>
+        {/* Header */}
+        <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 2fr 2fr",background:G.surface,padding:"8px 16px",borderBottom:`1px solid ${G.border}`}}>
+          {["Month","Due (₹)","Paid (₹)","Balance (₹)"].map(h=>(
+            <p key={h} style={{fontSize:10,fontWeight:800,color:G.textMuted,letterSpacing:0.5}}>{h}</p>
+          ))}
+        </div>
+        {/* Rows — one per month of the chit */}
+        {(()=>{
+          const startDate=m.joining?(new Date(m.joining)):(grp.start?new Date(grp.start):new Date());
+          const rows=[];
+          const totalMonths=total||duration;
+          let runningBalance=0;
+          for(let i=0;i<totalMonths;i++){
+            const d=new Date(startDate);
+            d.setMonth(d.getMonth()+i);
+            const monthLabel=d.toLocaleString("en-IN",{month:"short",year:"2-digit"});
+            const isPaid=i<paid;
+            const isPending=i>=paid&&i<paid+pending;
+            const due=monthlyAmt;
+            const paidThisMonth=isPaid?monthlyAmt:0;
+            runningBalance=isPaid?0:runningBalance+due;
+            const balance=isPaid?0:isPending?runningBalance:0;
+            rows.push(
+              <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 2fr 2fr 2fr",padding:"10px 16px",borderBottom:`1px solid ${G.border}`,background:isPaid?"#00D4AA08":isPending?"#FF475708":"transparent",alignItems:"center"}}>
+                <div style={{display:"flex",alignItems:"center",gap:7}}>
+                  <span style={{width:7,height:7,borderRadius:"50%",background:isPaid?G.accent:isPending?G.red:G.textMuted,flexShrink:0,display:"inline-block"}}/>
+                  <span style={{fontSize:12,fontWeight:isPaid||isPending?700:500,color:isPaid?G.textPrimary:isPending?G.red:G.textMuted}}>{monthLabel}</span>
+                </div>
+                <span style={{fontSize:12,fontWeight:600,color:G.textSecondary,fontFamily:"'JetBrains Mono',monospace"}}>{due.toLocaleString("en-IN")}</span>
+                <span style={{fontSize:12,fontWeight:700,color:isPaid?G.accent:G.textMuted,fontFamily:"'JetBrains Mono',monospace"}}>{paidThisMonth.toLocaleString("en-IN")}</span>
+                <span style={{fontSize:12,fontWeight:700,color:balance>0?G.red:G.textMuted,fontFamily:"'JetBrains Mono',monospace"}}>{balance.toLocaleString("en-IN")}</span>
+              </div>
+            );
+          }
+          return rows;
+        })()}
+        {/* Footer totals */}
+        <div style={{display:"grid",gridTemplateColumns:"2fr 2fr 2fr 2fr",padding:"10px 16px",background:G.surface,borderTop:`1px solid ${G.border}`}}>
+          <span style={{fontSize:11,fontWeight:800,color:G.textSecondary}}>TOTAL</span>
+          <span style={{fontSize:11,fontWeight:800,color:G.textSecondary,fontFamily:"'JetBrains Mono',monospace"}}>{(monthlyAmt*(total||duration)).toLocaleString("en-IN")}</span>
+          <span style={{fontSize:11,fontWeight:800,color:G.accent,fontFamily:"'JetBrains Mono',monospace"}}>{paidAmt.toLocaleString("en-IN")}</span>
+          <span style={{fontSize:11,fontWeight:800,color:pendingAmt>0?G.red:G.textMuted,fontFamily:"'JetBrains Mono',monospace"}}>{pendingAmt.toLocaleString("en-IN")}</span>
+        </div>
+      </Card>
+
+      {/* Amount Summary */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+        <Card style={{textAlign:"center",padding:16,border:`1px solid ${G.accent}44`}}>
+          <p style={{fontSize:10,color:G.textSecondary,fontWeight:700,letterSpacing:1,marginBottom:6}}>TOTAL PAID</p>
+          <p style={{fontSize:20,fontWeight:800,color:G.accent,fontFamily:"'JetBrains Mono',monospace"}}>₹{paidAmt.toLocaleString("en-IN")}</p>
+          <p style={{fontSize:11,color:G.textMuted,marginTop:4}}>{paid} months × ₹{monthlyAmt.toLocaleString("en-IN")}</p>
+        </Card>
+        <Card style={{textAlign:"center",padding:16,border:`1px solid ${pending>0?G.red:G.border}44`}}>
+          <p style={{fontSize:10,color:G.textSecondary,fontWeight:700,letterSpacing:1,marginBottom:6}}>PENDING</p>
+          <p style={{fontSize:20,fontWeight:800,color:pending>0?G.red:G.textMuted,fontFamily:"'JetBrains Mono',monospace"}}>₹{pendingAmt.toLocaleString("en-IN")}</p>
+          <p style={{fontSize:11,color:G.textMuted,marginTop:4}}>{pending} months × ₹{monthlyAmt.toLocaleString("en-IN")}</p>
+        </Card>
+      </div>
+
+      {/* Collection history */}
+      <Card style={{marginBottom:14}}>
+        <p style={{fontSize:10,color:G.textSecondary,fontWeight:700,letterSpacing:1,marginBottom:12}}>PAYMENT HISTORY ({myPayments.length} records)</p>
+        {myPayments.length===0&&<p style={{color:G.textMuted,fontSize:13,textAlign:"center",padding:"10px 0"}}>No recorded payments yet</p>}
+        {myPayments.map(c=>(
+          <div key={c._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:`1px solid ${G.border}`}}>
+            <div>
+              <p style={{fontWeight:700,fontSize:13,fontFamily:"'JetBrains Mono',monospace",color:G.accent}}>{c.receipt}</p>
+              <p style={{fontSize:11,color:G.textSecondary,marginTop:2}}>{c.date} · {c.method}</p>
+            </div>
+            <p style={{fontWeight:800,fontSize:15,color:G.accent,fontFamily:"'JetBrains Mono',monospace"}}>₹{Number(c.amount).toLocaleString("en-IN")}</p>
+          </div>
+        ))}
+      </Card>
+
+      {/* Actions */}
+      <div style={{display:"flex",gap:10}}>
+        <Btn variant="whatsapp" style={{flex:1,justifyContent:"center"}} onClick={()=>wa.send(m.mobile,wa.due(m.name,m.group,monthlyAmt,new Date().toLocaleString("en-IN",{month:"long",year:"numeric"})))}>💬 Send Reminder</Btn>
+        {pending>0&&<Btn variant="danger" style={{flex:1,justifyContent:"center"}} onClick={()=>wa.send(m.mobile,wa.overdue(m.name,m.group,pendingAmt,pending))}>🚨 Overdue Alert</Btn>}
+      </div>
+    </div>
+  );
+}
+
 // ── MEMBERS ───────────────────────────────────────────────────────────────────
-function Members({members,setMembers,groups,idToken,showToast}){
+function Members({members,setMembers,groups,idToken,showToast,collections}){
   const[modal,setModal]=useState(false);
   const[search,setSearch]=useState("");
   const[loading,setLoading]=useState(false);
+  const[selected,setSelected]=useState(null);
   const[form,setForm]=useState({name:"",mobile:"",address:"",aadhaar:"",pan:"",nominee:"",joining:new Date().toISOString().split("T")[0],group:"",monthlyAmount:"",paid:"0",pending:"0"});
   const filtered=members.filter(m=>m.name?.toLowerCase().includes(search.toLowerCase())||m.mobile?.includes(search)||m.group?.toLowerCase().includes(search.toLowerCase()));
   const add=async()=>{
@@ -434,6 +627,9 @@ function Members({members,setMembers,groups,idToken,showToast}){
     catch(e){showToast(e.message,"error");}
     setLoading(false);
   };
+
+  if(selected) return <MemberDetail m={selected} groups={groups} collections={collections||[]} onBack={()=>setSelected(null)} showToast={showToast}/>;
+
   return(
     <div className="page-enter">
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
@@ -445,7 +641,7 @@ function Members({members,setMembers,groups,idToken,showToast}){
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {filtered.length===0&&<Card><p style={{color:G.textMuted,textAlign:"center",fontSize:13}}>No members found</p></Card>}
         {filtered.map(m=>(
-          <Card key={m._id} style={{padding:"14px 16px"}}>
+          <Card key={m._id} onClick={()=>setSelected(m)} style={{padding:"14px 16px",cursor:"pointer"}}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
               <div style={{width:40,height:40,borderRadius:10,background:G.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:16,color:G.accent,flexShrink:0}}>{m.name?.[0]?.toUpperCase()}</div>
               <div style={{flex:1,minWidth:0}}>
@@ -459,7 +655,10 @@ function Members({members,setMembers,groups,idToken,showToast}){
                   <span style={{fontSize:12,color:Number(m.pending)>0?G.red:G.textMuted,fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>Due: {m.pending}</span>
                 </div>
               </div>
-              <Btn small variant="whatsapp" onClick={()=>wa.send(m.mobile,wa.due(m.name,m.group,m.monthlyAmount||5000,new Date().toLocaleString("en-IN",{month:"long",year:"numeric"})))}>💬</Btn>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
+                <span style={{color:G.textMuted,fontSize:18}}>›</span>
+                <button onClick={e=>{e.stopPropagation();wa.send(m.mobile,wa.due(m.name,m.group,m.monthlyAmount||5000,new Date().toLocaleString("en-IN",{month:"long",year:"numeric"})));}} style={{background:"#25D36622",border:"1px solid #25D36644",color:"#25D366",borderRadius:7,padding:"5px 10px",fontSize:12,cursor:"pointer",fontWeight:700}}>💬</button>
+              </div>
             </div>
           </Card>
         ))}
@@ -744,6 +943,339 @@ function UserManager({idToken,showToast}){
   );
 }
 
+// ── SMART IMPORT ──────────────────────────────────────────────────────────────
+function SmartImport({groups,setGroups,members,setMembers,idToken,showToast}){
+  const[mode,setMode]=useState(""); // "photo"|"excel"
+  const[step,setStep]=useState("idle"); // idle|scanning|review|importing|done
+  const[preview,setPreview]=useState(null);
+  const[extracted,setExtracted]=useState(null); // {group,members[]}
+  const[editGroup,setEditGroup]=useState(null);
+  const[editMembers,setEditMembers]=useState([]);
+  const[progress,setProgress]=useState(0);
+  const[dragOver,setDragOver]=useState(false);
+
+  const reset=()=>{setMode("");setStep("idle");setPreview(null);setExtracted(null);setEditGroup(null);setEditMembers([]);setProgress(0);};
+
+  // ── PHOTO: OCR via Claude API ──
+  const handlePhotoFile=async(file)=>{
+    if(!file)return;
+    const reader=new FileReader();
+    reader.onload=async(e)=>{
+      const b64=e.target.result.split(",")[1];
+      const mime=file.type||"image/jpeg";
+      setPreview(e.target.result);
+      setStep("scanning");setProgress(10);
+      try{
+        const res=await fetch("https://api.anthropic.com/v1/messages",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({
+            model:"claude-sonnet-4-20250514",
+            max_tokens:2000,
+            messages:[{role:"user",content:[
+              {type:"image",source:{type:"base64",media_type:mime,data:b64}},
+              {type:"text",text:`You are a chit fund data extractor. Analyze this chit fund document/photo carefully.
+Extract ALL data and return ONLY valid JSON (no markdown, no explanation) in this exact format:
+{
+  "group": {
+    "name": "chit fund name",
+    "amount": monthly_amount_number,
+    "duration": total_months_number,
+    "members": total_member_count_number,
+    "start": "YYYY-MM-DD or empty",
+    "end": "YYYY-MM-DD or empty"
+  },
+  "members": [
+    {
+      "name": "member full name",
+      "mobile": "phone number or empty",
+      "address": "address or empty",
+      "paid": months_paid_number,
+      "pending": months_pending_number,
+      "monthlyAmount": monthly_amount_number,
+      "joining": "YYYY-MM-DD or empty",
+      "nominee": "",
+      "aadhaar": "",
+      "pan": "",
+      "group": "same as group name above"
+    }
+  ]
+}
+If any field is not visible in the image, use sensible defaults (0 for numbers, empty string for text).
+Extract every member row you can see. Be thorough.`}
+            ]}]}),
+        });
+        setProgress(60);
+        const data=await res.json();
+        if(data.error)throw new Error(data.error.message);
+        const text=data.content?.map(b=>b.text||"").join("");
+        const clean=text.replace(/```json|```/g,"").trim();
+        const parsed=JSON.parse(clean);
+        setExtracted(parsed);
+        setEditGroup({...parsed.group});
+        setEditMembers(parsed.members.map((m,i)=>({...m,_key:i})));
+        setProgress(100);
+        setStep("review");
+      }catch(err){
+        showToast("Could not read image: "+err.message,"error");
+        setStep("idle");
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // ── EXCEL: parse via SheetJS CDN ──
+  const handleExcelFile=async(file)=>{
+    setStep("scanning");setProgress(20);
+    try{
+      // Load SheetJS if not already loaded
+      if(!window.XLSX){
+        await new Promise((res,rej)=>{const s=document.createElement("script");s.src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js";s.onload=res;s.onerror=rej;document.head.appendChild(s);});
+      }
+      const buf=await file.arrayBuffer();
+      const wb=window.XLSX.read(buf,{type:"array"});
+      setProgress(50);
+      // Try to auto-detect group info from first sheet name or cell A1
+      const sheetName=wb.SheetNames[0];
+      const ws=wb.Sheets[sheetName];
+      const rows=window.XLSX.utils.sheet_to_json(ws,{defval:""});
+      setProgress(70);
+      if(!rows.length){showToast("No data found in Excel","error");setStep("idle");return;}
+      // Map columns flexibly (case-insensitive)
+      const col=(row,keys)=>{for(const k of keys){const found=Object.keys(row).find(r=>r.toLowerCase().includes(k));if(found&&row[found]!==undefined&&row[found]!=="")return String(row[found]);}return "";};
+      const colN=(row,keys)=>{const v=col(row,keys);return isNaN(Number(v))?0:Number(v);};
+      const mems=rows.map((row,i)=>({
+        name:col(row,["name","member","person","participant"]),
+        mobile:col(row,["mobile","phone","contact","number","mob"]),
+        address:col(row,["address","addr","location"]),
+        paid:colN(row,["paid","months paid","installments paid","pay"]),
+        pending:colN(row,["pending","due","remaining","balance"]),
+        monthlyAmount:colN(row,["amount","monthly","installment","contribution"]),
+        joining:col(row,["joining","join","start","date"]),
+        nominee:col(row,["nominee"]),
+        aadhaar:col(row,["aadhaar","aadhar"]),
+        pan:col(row,["pan"]),
+        group:sheetName!=="Sheet1"?sheetName:"",
+        _key:i,
+      })).filter(m=>m.name);
+      const amt=mems[0]?.monthlyAmount||0;
+      const grp={name:sheetName!=="Sheet1"?sheetName:"Imported Chit",amount:amt,duration:mems[0]?(mems[0].paid+mems[0].pending)||12:12,members:mems.length,start:"",end:""};
+      setExtracted({group:grp,members:mems});
+      setEditGroup({...grp});
+      setEditMembers(mems);
+      setProgress(100);
+      setStep("review");
+    }catch(err){showToast("Excel error: "+err.message,"error");setStep("idle");}
+  };
+
+  const handleFile=(file)=>{
+    if(!file)return;
+    const isImg=file.type.startsWith("image/");
+    const isXls=file.name.match(/\.(xlsx|xls|csv)$/i);
+    if(isImg){setMode("photo");handlePhotoFile(file);}
+    else if(isXls){setMode("excel");handleExcelFile(file);}
+    else{showToast("Please upload an image or Excel/CSV file","error");}
+  };
+
+  // ── SAVE TO FIREBASE ──
+  const doImport=async()=>{
+    if(!editGroup?.name){showToast("Group name required","error");return;}
+    const validMembers=editMembers.filter(m=>m.name?.trim());
+    if(!validMembers.length){showToast("At least one member required","error");return;}
+    setStep("importing");setProgress(0);
+    try{
+      // Create group
+      const gDoc=await db.add("groups",{
+        name:editGroup.name,amount:String(editGroup.amount||0),
+        duration:String(editGroup.duration||0),members:String(editGroup.members||validMembers.length),
+        start:editGroup.start||"",end:editGroup.end||"",
+        active:"true",collected:"0",createdAt:new Date().toISOString(),
+      },idToken);
+      setGroups(p=>[...p,gDoc]);
+      setProgress(20);
+      // Create members in batches
+      const newMems=[];
+      for(let i=0;i<validMembers.length;i++){
+        const m=validMembers[i];
+        const doc=await db.add("members",{
+          name:m.name.trim(),mobile:m.mobile||"",address:m.address||"",
+          aadhaar:m.aadhaar||"",pan:m.pan||"",nominee:m.nominee||"",
+          joining:m.joining||new Date().toISOString().split("T")[0],
+          group:editGroup.name,monthlyAmount:String(m.monthlyAmount||editGroup.amount||0),
+          paid:String(m.paid||0),pending:String(m.pending||0),
+          status:"active",createdAt:new Date().toISOString(),
+        },idToken);
+        newMems.push(doc);
+        setProgress(20+Math.round((i+1)/validMembers.length*75));
+      }
+      setMembers(p=>[...p,...newMems]);
+      setProgress(100);
+      setStep("done");
+      showToast(`✓ Imported: 1 group + ${newMems.length} members!`);
+    }catch(err){showToast("Import failed: "+err.message,"error");setStep("review");}
+  };
+
+  // ── RENDER ──
+  if(step==="done") return(
+    <div className="page-enter" style={{textAlign:"center",paddingTop:40}}>
+      <div style={{fontSize:64,marginBottom:16}}>✅</div>
+      <h2 style={{fontSize:22,fontWeight:800,marginBottom:8}}>Import Complete!</h2>
+      <p style={{color:G.textSecondary,marginBottom:8}}>Group <b style={{color:G.accent}}>{editGroup?.name}</b> and <b style={{color:G.accent}}>{editMembers.filter(m=>m.name).length} members</b> added to Firebase.</p>
+      <p style={{color:G.textMuted,fontSize:13,marginBottom:28}}>Go to Chit Groups or Members to view them.</p>
+      <Btn onClick={reset}>↩ Import Another</Btn>
+    </div>
+  );
+
+  if(step==="importing") return(
+    <div className="page-enter" style={{textAlign:"center",paddingTop:60}}>
+      <Spinner size={48}/>
+      <p style={{marginTop:20,fontWeight:700,fontSize:16}}>Saving to Firebase...</p>
+      <p style={{color:G.textSecondary,marginTop:8,fontSize:13}}>{progress}% complete</p>
+      <div style={{height:6,background:G.border,borderRadius:3,overflow:"hidden",maxWidth:300,margin:"20px auto 0"}}>
+        <div style={{height:"100%",width:`${progress}%`,background:`linear-gradient(90deg,${G.accent},${G.blue})`,borderRadius:3,transition:"width 0.4s ease"}}/>
+      </div>
+    </div>
+  );
+
+  if(step==="scanning") return(
+    <div className="page-enter" style={{textAlign:"center",paddingTop:60}}>
+      {preview&&<img src={preview} style={{width:140,height:140,objectFit:"cover",borderRadius:16,marginBottom:20,border:`2px solid ${G.border}`}}/>}
+      <Spinner size={48}/>
+      <p style={{marginTop:20,fontWeight:700,fontSize:16}}>{mode==="photo"?"AI is reading your chit fund document...":"Parsing Excel file..."}</p>
+      <p style={{color:G.textSecondary,marginTop:8,fontSize:13}}>{mode==="photo"?"Extracting group name, members, amounts, months paid...":"Mapping columns automatically..."}</p>
+      <div style={{height:6,background:G.border,borderRadius:3,overflow:"hidden",maxWidth:300,margin:"20px auto 0"}}>
+        <div style={{height:"100%",width:`${progress}%`,background:`linear-gradient(90deg,${G.accent},${G.blue})`,borderRadius:3,transition:"width 0.5s ease"}}/>
+      </div>
+    </div>
+  );
+
+  if(step==="review") return(
+    <div className="page-enter">
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+        <button onClick={reset} style={{background:"none",border:"none",color:G.textSecondary,cursor:"pointer",fontSize:20,padding:0}}>←</button>
+        <h2 style={{fontSize:20,fontWeight:800}}>Review & Edit</h2>
+      </div>
+      <p style={{color:G.textSecondary,fontSize:13,marginBottom:16}}>Check extracted data before importing. Edit anything incorrect.</p>
+
+      {/* Group Card */}
+      <Card style={{marginBottom:14}}>
+        <p style={{fontSize:11,fontWeight:800,color:G.accent,letterSpacing:1,marginBottom:12}}>CHIT GROUP DETAILS</p>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div style={{gridColumn:"1/-1"}}>
+            <label style={{fontSize:11,color:G.textSecondary,fontWeight:600}}>Group Name *</label>
+            <input value={editGroup?.name||""} onChange={e=>setEditGroup(g=>({...g,name:e.target.value}))}
+              style={{width:"100%",background:G.surface,border:`1px solid ${G.border}`,borderRadius:8,padding:"8px 12px",color:G.textPrimary,fontSize:13,marginTop:4}}/>
+          </div>
+          {[["Monthly Amount (₹)","amount"],["Duration (months)","duration"],["No. of Members","members"]].map(([lbl,key])=>(
+            <div key={key}>
+              <label style={{fontSize:11,color:G.textSecondary,fontWeight:600}}>{lbl}</label>
+              <input type="number" value={editGroup?.[key]||""} onChange={e=>setEditGroup(g=>({...g,[key]:Number(e.target.value)}))}
+                style={{width:"100%",background:G.surface,border:`1px solid ${G.border}`,borderRadius:8,padding:"8px 12px",color:G.textPrimary,fontSize:13,marginTop:4}}/>
+            </div>
+          ))}
+          {[["Start Date","start"],["End Date","end"]].map(([lbl,key])=>(
+            <div key={key}>
+              <label style={{fontSize:11,color:G.textSecondary,fontWeight:600}}>{lbl}</label>
+              <input type="date" value={editGroup?.[key]||""} onChange={e=>setEditGroup(g=>({...g,[key]:e.target.value}))}
+                style={{width:"100%",background:G.surface,border:`1px solid ${G.border}`,borderRadius:8,padding:"8px 12px",color:G.textPrimary,fontSize:13,marginTop:4}}/>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Members */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <p style={{fontSize:11,fontWeight:800,color:G.accent,letterSpacing:1}}>{editMembers.filter(m=>m.name).length} MEMBERS DETECTED</p>
+        <Btn small onClick={()=>setEditMembers(p=>[...p,{name:"",mobile:"",address:"",paid:0,pending:0,monthlyAmount:editGroup?.amount||0,joining:"",nominee:"",aadhaar:"",pan:"",group:editGroup?.name||"",_key:Date.now()}])}>+ Add Row</Btn>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+        {editMembers.map((m,idx)=>(
+          <Card key={m._key} style={{padding:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <span style={{width:26,height:26,borderRadius:7,background:G.accentSoft,color:G.accent,fontWeight:800,fontSize:12,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{idx+1}</span>
+              <button onClick={()=>setEditMembers(p=>p.filter((_,i)=>i!==idx))} style={{background:G.redSoft,border:`1px solid ${G.red}44`,color:G.red,borderRadius:6,padding:"3px 10px",fontSize:11,cursor:"pointer",fontWeight:700}}>✕ Remove</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {[["Name *","name","text"],["Mobile","mobile","tel"],["Paid (months)","paid","number"],["Pending (months)","pending","number"],["Monthly ₹","monthlyAmount","number"],["Joining Date","joining","date"]].map(([lbl,key,type])=>(
+                <div key={key} style={key==="name"?{gridColumn:"1/-1"}:{}}>
+                  <label style={{fontSize:10,color:G.textSecondary,fontWeight:600}}>{lbl}</label>
+                  <input type={type} value={m[key]||""} onChange={e=>{const v=type==="number"?Number(e.target.value):e.target.value;setEditMembers(p=>p.map((x,i)=>i===idx?{...x,[key]:v}:x));}}
+                    style={{width:"100%",background:G.surface,border:`1px solid ${G.border}`,borderRadius:7,padding:"7px 10px",color:G.textPrimary,fontSize:12,marginTop:3}}/>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      <div style={{position:"sticky",bottom:80,zIndex:10}}>
+        <div style={{background:G.bg,paddingTop:10,paddingBottom:4}}>
+          <Btn onClick={doImport} style={{width:"100%",justifyContent:"center",padding:"14px",fontSize:15}}>
+            🚀 Import to Firebase ({editMembers.filter(m=>m.name).length} members)
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── IDLE: choose method ──
+  return(
+    <div className="page-enter">
+      <div style={{marginBottom:20}}>
+        <h2 style={{fontSize:22,fontWeight:800}}>🪄 Smart Import</h2>
+        <p style={{color:G.textSecondary,fontSize:13,marginTop:2}}>Upload a chit fund photo or Excel file — AI extracts everything automatically</p>
+      </div>
+
+      {/* Upload Zone */}
+      <div
+        onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+        onDragLeave={()=>setDragOver(false)}
+        onDrop={e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)handleFile(f);}}
+        style={{border:`2px dashed ${dragOver?G.accent:G.border}`,borderRadius:20,padding:"36px 20px",textAlign:"center",marginBottom:20,background:dragOver?G.accentSoft:"transparent",transition:"all 0.2s",cursor:"pointer"}}
+        onClick={()=>document.getElementById("smart-file-input").click()}>
+        <div style={{fontSize:48,marginBottom:12}}>📂</div>
+        <p style={{fontWeight:800,fontSize:16,marginBottom:6}}>Drop file here or tap to browse</p>
+        <p style={{color:G.textSecondary,fontSize:13}}>Supports: JPG, PNG, PDF photos · Excel (.xlsx, .xls) · CSV</p>
+        <input id="smart-file-input" type="file" accept="image/*,.xlsx,.xls,.csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+      </div>
+
+      {/* Two method cards */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:24}}>
+        <div onClick={()=>document.getElementById("smart-photo-input").click()}
+          style={{background:G.card,border:`1px solid ${G.border}`,borderRadius:16,padding:20,textAlign:"center",cursor:"pointer"}}>
+          <div style={{fontSize:36,marginBottom:10}}>📸</div>
+          <p style={{fontWeight:800,fontSize:14,marginBottom:6}}>Photo / Scan</p>
+          <p style={{color:G.textSecondary,fontSize:12}}>AI reads chit book, register, or any photo</p>
+          <input id="smart-photo-input" type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+        </div>
+        <div onClick={()=>document.getElementById("smart-excel-input").click()}
+          style={{background:G.card,border:`1px solid ${G.border}`,borderRadius:16,padding:20,textAlign:"center",cursor:"pointer"}}>
+          <div style={{fontSize:36,marginBottom:10}}>📊</div>
+          <p style={{fontWeight:800,fontSize:14,marginBottom:6}}>Excel / CSV</p>
+          <p style={{color:G.textSecondary,fontSize:12}}>Auto-maps columns for groups & members</p>
+          <input id="smart-excel-input" type="file" accept=".xlsx,.xls,.csv" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+        </div>
+      </div>
+
+      {/* How it works */}
+      <Card>
+        <p style={{fontSize:12,fontWeight:800,color:G.textSecondary,letterSpacing:1,marginBottom:14}}>HOW IT WORKS</p>
+        {[
+          ["📸","Upload photo or Excel","Any chit book page, register scan, or spreadsheet"],
+          ["🤖","AI extracts all data","Reads group name, amount, member names, months paid/pending, phone numbers"],
+          ["✏️","Review & edit","Correct any mistakes before saving"],
+          ["🚀","One-tap import","Creates the chit group + all members in Firebase instantly"],
+        ].map(([icon,title,desc])=>(
+          <div key={title} style={{display:"flex",gap:14,padding:"10px 0",borderBottom:`1px solid ${G.border}`}}>
+            <div style={{width:36,height:36,borderRadius:9,background:G.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{icon}</div>
+            <div><p style={{fontWeight:700,fontSize:13}}>{title}</p><p style={{fontSize:12,color:G.textSecondary,marginTop:2}}>{desc}</p></div>
+          </div>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
 // ── APP SHELL ─────────────────────────────────────────────────────────────────
 function App(){
   const[user,setUser]=useState(null);
@@ -771,11 +1303,12 @@ function App(){
   const pages={
     dashboard:<Dashboard groups={groups} members={members} collections={collections}/>,
     groups:<Groups groups={groups} setGroups={setGroups} {...sp}/>,
-    members:<Members members={members} setMembers={setMembers} groups={groups} {...sp}/>,
+    members:<Members members={members} setMembers={setMembers} groups={groups} collections={collections} {...sp}/>,
     collections:<Collections collections={collections} setCollections={setCollections} members={members} groups={groups} {...sp}/>,
     receipts:<Receipts collections={collections} showToast={showToast}/>,
     reminders:<WAReminders members={members} showToast={showToast}/>,
     reports:<Reports groups={groups} members={members} collections={collections}/>,
+    import:<SmartImport groups={groups} setGroups={setGroups} members={members} setMembers={setMembers} {...sp}/>,
     users:<UserManager {...sp}/>,
   };
 
