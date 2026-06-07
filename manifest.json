@@ -1,0 +1,12 @@
+{
+  "short_name": "ChitVault",
+  "name": "ChitVault – Chit Fund Management",
+  "description": "Professional chit fund management with Firebase sync",
+  "icons": [
+    { "src": "icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any maskable" }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#00D4AA",
+  "background_color": "#070B12"
+}

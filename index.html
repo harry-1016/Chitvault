@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#00D4AA" />
+  <meta name="description" content="ChitVault - Professional Chit Fund Management System" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="ChitVault" />
+  <link rel="manifest" href="manifest.json" />
+  <title>ChitVault – Chit Fund Management</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#070B12;color:#E8EDF5;font-family:'Plus Jakarta Sans',sans-serif;min-height:100vh}
+    ::-webkit-scrollbar{width:4px;height:4px}
+    ::-webkit-scrollbar-track{background:#0F1520}
+    ::-webkit-scrollbar-thumb{background:#1E2D45;border-radius:2px}
+    input,select,textarea,button{font-family:'Plus Jakarta Sans',sans-serif;outline:none}
+    button{cursor:pointer}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+    .page-enter{animation:fadeIn 0.3s ease forwards}
+    .spin{animation:spin 0.8s linear infinite}
+    .pulse{animation:pulse 1.5s ease infinite}
+    #root{min-height:100vh}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React + Babel via CDN — no build step needed -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel" data-presets="react">
+const { useState, useEffect, useCallback } = React;
+
+// ─── Firebase Config ──────────────────────────────────────────────────────────
+const FB_CONFIG = {
+  apiKey: "AIzaSyAO1cXrUg_8K-2xmmYQp03ggF_MnLWTF-I",
+  projectId: "chitvault-55a6b",
+};
+const FIREBASE_AUTH_URL = `https://identitytoolkit.googleapis.com/v1/accounts`;
+const FIRESTORE_URL = `https://firestore.googleapis.com/v1/projects/${FB_CONFIG.projectId}/databases/(default)/documents`;
+const API_KEY = FB_CONFIG.apiKey;
+
+// ─── Firebase Auth ────────────────────────────────────────────────────────────
+const firebaseAuth = {
+  async signIn(email, password) {
+    const res = await fetch(`${FIREBASE_AUTH_URL}:signInWithPassword?key=${API_KEY}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, returnSecureToken: true }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    return data;
+  },
+  async createUser(email, password) {
+    const res = await fetch(`${FIREBASE_AUTH_URL}:signUp?key=${API_KEY}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, returnSecureToken: true }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    return data;
+  },
+};
+
+// ─── Firestore Helpers ────────────────────────────────────────────────────────
+function toFirestore(obj) {
+  const fields = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === null || v === undefined) fields[k] = { nullValue: null };
+    else if (typeof v === "boolean") fields[k] = { booleanValue: v };
+    else if (typeof v === "number") fields[k] = { integerValue: String(v) };
+    else if (typeof v === "string") fields[k] = { stringValue: v };
+    else if (Array.isArray(v)) fields[k] = { arrayValue: { values: v.map(i => ({ stringValue: String(i) })) } };
+    else fields[k] = { stringValue: JSON.stringify(v) };
+  }
+  return { fields };
+}
+function fromFirestore(doc) {
+  if (!doc.fields) return {};
+  const obj = { _id: doc.name?.split("/").pop() };
+  for (const [k, v] of Object.entries(doc.fields)) {
+    if (v.stringValue !== undefined) obj[k] = v.stringValue;
+    else if (v.integerValue !== undefined) obj[k] = Number(v.integerValue);
+    else if (v.doubleValue !== undefined) obj[k] = Number(v.doubleValue);
+    else if (v.booleanValue !== undefined) obj[k] = v.booleanValue;
+    else if (v.nullValue !== undefined) obj[k] = null;
+    else if (v.arrayValue) obj[k] = (v.arrayValue.values || []).map(i => i.stringValue || "");
+    else obj[k] = null;
+  }
+  return obj;
+}
+const db = {
+  async getAll(collection, idToken) {
+    const res = await fetch(`${FIRESTORE_URL}/${collection}`, { headers: { Authorization: `Bearer ${idToken}` } });
+    const data = await res.json();
+    if (data.error) return [];
+    return (data.documents || []).map(fromFirestore);
+  },
+  async add(collection, data, idToken) {
+    const res = await fetch(`${FIRESTORE_URL}/${collection}`, {
+      method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify(toFirestore(data)),
+    });
+    const doc = await res.json();
+    if (doc.error) throw new Error(doc.error.message);
+    return fromFirestore(doc);
+  },
+  async delete(collection, docId, idToken) {
+    await fetch(`${FIRESTORE_URL}/${collection}/${docId}`, { method: "DELETE", headers: { Authorization: `Bearer ${idToken}` } });
+  },
+};
+
+// ─── WhatsApp ─────────────────────────────────────────────────────────────────
+const whatsapp = {
+  sendMessage(phone, message) {
+    const clean = phone.replace(/\D/g, "");
+    const num = clean.startsWith("91") ? clean : `91${clean}`;
+    window.open(`https://wa.me/${num}?text=${encodeURIComponent(message)}`, "_blank");
+  },
+  receiptMessage(member, group, amount, receiptNo, date, method) {
+    return `✅ *ChitVault Payment Receipt*\n\n📋 Receipt No: *${receiptNo}*\n👤 Member: *${member}*\n💰 Chit Group: *${group}*\n💵 Amount Paid: *₹${Number(amount).toLocaleString("en-IN")}*\n📅 Date: *${date}*\n💳 Method: *${method}*\n\nThank you for your payment! 🙏\n_ChitVault Management_`;
+  },
+  dueReminder(member, group, amount, month) {
+    return `⏰ *ChitVault Payment Reminder*\n\nDear *${member}*,\n\nYour chit payment for *${group}* is due.\n💰 Amount: *₹${Number(amount).toLocaleString("en-IN")}*\n📅 Month: *${month}*\n\nPlease pay at the earliest to avoid penalties.\n_ChitVault Management_`;
+  },
+  overdueReminder(member, group, amount, months) {
+    return `🚨 *ChitVault Overdue Alert*\n\nDear *${member}*,\n\nYou have *${months} months* overdue for *${group}*.\n💰 Total Pending: *₹${Number(amount).toLocaleString("en-IN")}*\n\nPlease contact us immediately to avoid legal action.\n_ChitVault Management_`;
+  },
+  auctionNotice(member, group, date) {
+    return `🔔 *ChitVault Auction Notice*\n\nDear *${member}*,\n\nThe auction for *${group}* is scheduled on *${date}*.\n\nPlease be present or contact us for more details.\n_ChitVault Management_`;
+  },
+};
+
+// ─── Design Tokens ────────────────────────────────────────────────────────────
+const G = {
+  bg:"#070B12",surface:"#0F1520",card:"#141C2B",border:"#1E2D45",
+  accent:"#00D4AA",accentDark:"#00A882",accentSoft:"#00D4AA15",
+  gold:"#F5B800",goldSoft:"#F5B80015",red:"#FF4757",redSoft:"#FF475715",
+  blue:"#4B9EFF",blueSoft:"#4B9EFF15",purple:"#B44FFF",purpleSoft:"#B44FFF15",
+  green:"#00D4AA",textPrimary:"#E8EDF5",textSecondary:"#6B7FA3",textMuted:"#2E3D55",whatsapp:"#25D366",
+};
+
+// ─── UI Components ────────────────────────────────────────────────────────────
+const Spinner = ({ size = 20 }) => (
+  <div className="spin" style={{ width:size,height:size,border:`2px solid ${G.border}`,borderTopColor:G.accent,borderRadius:"50%" }} />
+);
+
+const Toast = ({ msg, type="success" }) => msg ? (
+  <div style={{ position:"fixed",top:20,right:20,zIndex:9999,background:type==="success"?G.accent:G.red,color:type==="success"?"#000":"#fff",padding:"12px 20px",borderRadius:10,fontWeight:700,fontSize:13,boxShadow:`0 8px 32px rgba(0,0,0,0.4)`,animation:"fadeIn 0.3s ease" }}>
+    {type==="success"?"✓ ":"✕ "}{msg}
+  </div>
+) : null;
+
+const Card = ({ children, style={}, onClick }) => (
+  <div onClick={onClick} style={{ background:G.card,border:`1px solid ${G.border}`,borderRadius:14,padding:20,transition:"all 0.2s",cursor:onClick?"pointer":"default",...style }}>{children}</div>
+);
+
+const Btn = ({ children, onClick, variant="primary", style={}, small, loading, disabled }) => {
+  const base = { border:"none",borderRadius:9,fontWeight:700,cursor:disabled||loading?"not-allowed":"pointer",letterSpacing:0.2,transition:"all 0.15s",padding:small?"7px 14px":"11px 22px",fontSize:small?12:14,display:"inline-flex",alignItems:"center",gap:6,opacity:disabled?0.5:1 };
+  const variants = {
+    primary:{background:G.accent,color:"#000"},
+    ghost:{background:"transparent",color:G.textSecondary,border:`1px solid ${G.border}`},
+    danger:{background:G.redSoft,color:G.red,border:`1px solid ${G.red}44`},
+    success:{background:G.accentSoft,color:G.accent,border:`1px solid ${G.accent}44`},
+    whatsapp:{background:"#25D36622",color:G.whatsapp,border:`1px solid #25D36644`},
+    gold:{background:G.goldSoft,color:G.gold,border:`1px solid ${G.gold}44`},
+  };
+  return (
+    <button style={{...base,...variants[variant],...style}} onClick={!disabled&&!loading?onClick:undefined}>
+      {loading?<Spinner size={14}/>:null}{children}
+    </button>
+  );
+};
+
+const Input = ({ label, value, onChange, type="text", placeholder, required, icon }) => (
+  <div style={{marginBottom:14}}>
+    {label&&<label style={{fontSize:12,color:G.textSecondary,display:"block",marginBottom:6,fontWeight:600,letterSpacing:0.4}}>{label}{required&&<span style={{color:G.accent}}> *</span>}</label>}
+    <div style={{position:"relative"}}>
+      {icon&&<span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14}}>{icon}</span>}
+      <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+        style={{width:"100%",background:G.surface,border:`1px solid ${G.border}`,borderRadius:9,padding:icon?"10px 14px 10px 36px":"10px 14px",color:G.textPrimary,fontSize:14,transition:"border-color 0.2s"}}
+        onFocus={e=>e.target.style.borderColor=G.accent}
+        onBlur={e=>e.target.style.borderColor=G.border} />
+    </div>
+  </div>
+);
+
+const Select = ({ label, value, onChange, options }) => (
+  <div style={{marginBottom:14}}>
+    {label&&<label style={{fontSize:12,color:G.textSecondary,display:"block",marginBottom:6,fontWeight:600,letterSpacing:0.4}}>{label}</label>}
+    <select value={value} onChange={e=>onChange(e.target.value)}
+      style={{width:"100%",background:G.surface,border:`1px solid ${G.border}`,borderRadius:9,padding:"10px 14px",color:G.textPrimary,fontSize:14}}>
+      {options.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  </div>
+);
+
+const Badge = ({ color, children }) => (
+  <span style={{background:`${color}22`,color,border:`1px solid ${color}33`,borderRadius:5,padding:"3px 9px",fontSize:11,fontWeight:700,letterSpacing:0.4}}>{children}</span>
+);
+
+const Modal = ({ open, onClose, title, children, width=500 }) => {
+  if(!open) return null;
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={onClose}>
+      <div style={{background:G.surface,border:`1px solid ${G.border}`,borderRadius:18,padding:28,width:`min(95vw,${width}px)`,maxHeight:"88vh",overflowY:"auto",animation:"fadeIn 0.2s ease"}} onClick={e=>e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}>
+          <span style={{fontSize:17,fontWeight:800}}>{title}</span>
+          <button onClick={onClose} style={{background:G.card,border:`1px solid ${G.border}`,color:G.textSecondary,width:30,height:30,borderRadius:8,cursor:"pointer",fontSize:16}}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+};
+
+const StatCard = ({ label, value, icon, color, sub }) => (
+  <Card style={{position:"relative",overflow:"hidden"}}>
+    <div style={{position:"absolute",right:-10,top:-10,width:70,height:70,background:`${color}10`,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{icon}</div>
+    <p style={{fontSize:11,color:G.textSecondary,fontWeight:700,letterSpacing:0.8,marginBottom:8}}>{label.toUpperCase()}</p>
+    <p style={{fontSize:26,fontWeight:800,color,fontFamily:"'JetBrains Mono',monospace",letterSpacing:-0.5}}>{value}</p>
+    {sub&&<p style={{fontSize:11,color:G.textMuted,marginTop:4}}>{sub}</p>}
+  </Card>
+);
+
+// ─── PWA Online Status ────────────────────────────────────────────────────────
+function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  useEffect(()=>{
+    const on=()=>setIsOnline(true), off=()=>setIsOnline(false);
+    window.addEventListener("online",on); window.addEventListener("offline",off);
+    return()=>{window.removeEventListener("online",on);window.removeEventListener("offline",off)};
+  },[]);
+  return isOnline;
+}
+
+// ─── LOGIN ────────────────────────────────────────────────────────────────────
+function Login({ onLogin }) {
+  const [username,setUsername]=useState("");
+  const [password,setPassword]=useState("");
+  const [error,setError]=useState("");
+  const [loading,setLoading]=useState(false);
+  const toEmail=u=>`${u.toLowerCase().replace(/\s+/g,"")}@chitvault.app`;
+
+  const handleLogin=async()=>{
+    if(!username||!password){setError("Please enter username and password");return;}
+    setLoading(true);setError("");
+    try{
+      const data=await firebaseAuth.signIn(toEmail(username),password);
+      const isOwner=username.toLowerCase()==="harikrishna";
+      onLogin({uid:data.localId,idToken:data.idToken,username,isOwner});
+    }catch(e){setError(e.message.includes("INVALID")||e.message.includes("EMAIL")?"Invalid username or password":e.message);}
+    setLoading(false);
+  };
+
+  return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:`radial-gradient(ellipse at 30% 50%,${G.accentSoft},transparent 60%),radial-gradient(ellipse at 80% 20%,${G.blueSoft},transparent 50%),${G.bg}`}}>
+      <div style={{width:400,animation:"fadeIn 0.4s ease",padding:"0 16px"}}>
+        <div style={{textAlign:"center",marginBottom:36}}>
+          <div style={{width:64,height:64,background:`linear-gradient(135deg,${G.accent},${G.blue})`,borderRadius:18,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px",fontSize:30}}>₹</div>
+          <h1 style={{fontSize:30,fontWeight:800,letterSpacing:-1,background:`linear-gradient(135deg,${G.accent},${G.blue})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>ChitVault</h1>
+          <p style={{color:G.textSecondary,fontSize:13,marginTop:4}}>Chit Fund Management System</p>
+        </div>
+        <Card>
+          <h2 style={{fontSize:16,fontWeight:800,marginBottom:20,color:G.textSecondary}}>Sign In to Continue</h2>
+          <Input label="Username" value={username} onChange={setUsername} placeholder="Enter your username" icon="👤" required />
+          <Input label="Password" type="password" value={password} onChange={setPassword} placeholder="Enter your password" icon="🔑" required />
+          {error&&<div style={{background:G.redSoft,border:`1px solid ${G.red}44`,borderRadius:8,padding:"10px 14px",marginBottom:14}}><p style={{color:G.red,fontSize:13}}>⚠ {error}</p></div>}
+          <Btn onClick={handleLogin} loading={loading} style={{width:"100%",padding:"13px",justifyContent:"center",fontSize:15}}>
+            {loading?"Signing In...":"Sign In →"}
+          </Btn>
+          <div style={{marginTop:14,padding:"10px 14px",background:G.bg,borderRadius:8,border:`1px solid ${G.border}`}}>
+            <p style={{fontSize:11,color:G.textMuted,fontFamily:"'JetBrains Mono',monospace"}}>Owner: harikrishna / 123456789</p>
+          </div>
+        </Card>
+        <p style={{textAlign:"center",color:G.textMuted,fontSize:11,marginTop:16}}>Secured by Firebase Authentication</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── SIDEBAR ──────────────────────────────────────────────────────────────────
+const NAV=[
+  {id:"dashboard",icon:"⬡",label:"Dashboard"},
+  {id:"groups",icon:"◈",label:"Chit Groups"},
+  {id:"members",icon:"◉",label:"Members"},
+  {id:"collections",icon:"◎",label:"Collections"},
+  {id:"receipts",icon:"▣",label:"Receipts"},
+  {id:"reminders",icon:"💬",label:"WhatsApp"},
+  {id:"reports",icon:"▤",label:"Reports"},
+  {id:"users",icon:"🔐",label:"User Manager",ownerOnly:true},
+];
+
+function Sidebar({page,setPage,collapsed,setCollapsed,user,onLogout}){
+  return(
+    <div style={{width:collapsed?62:230,background:G.surface,borderRight:`1px solid ${G.border}`,height:"100vh",position:"fixed",left:0,top:0,zIndex:100,transition:"width 0.25s",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{padding:collapsed?"18px 14px":"18px 20px",borderBottom:`1px solid ${G.border}`,display:"flex",alignItems:"center",gap:10,cursor:"pointer"}} onClick={()=>setCollapsed(!collapsed)}>
+        <div style={{width:32,height:32,background:`linear-gradient(135deg,${G.accent},${G.blue})`,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>₹</div>
+        {!collapsed&&<span style={{fontWeight:800,fontSize:15,whiteSpace:"nowrap",background:`linear-gradient(135deg,${G.accent},${G.blue})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>ChitVault</span>}
+      </div>
+      <nav style={{flex:1,padding:"10px 8px",overflowY:"auto"}}>
+        {NAV.filter(n=>!n.ownerOnly||user?.isOwner).map(n=>(
+          <div key={n.id} onClick={()=>setPage(n.id)}
+            style={{display:"flex",alignItems:"center",gap:10,padding:collapsed?"11px 0":"10px 13px",justifyContent:collapsed?"center":"flex-start",borderRadius:9,marginBottom:2,cursor:"pointer",background:page===n.id?G.accentSoft:"transparent",color:page===n.id?G.accent:G.textSecondary,fontWeight:page===n.id?700:500,fontSize:13,transition:"all 0.15s",whiteSpace:"nowrap"}}>
+            <span style={{fontSize:15,flexShrink:0}}>{n.icon}</span>
+            {!collapsed&&n.label}
+          </div>
+        ))}
+      </nav>
+      {!collapsed&&(
+        <div style={{padding:"14px 16px",borderTop:`1px solid ${G.border}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+            <div style={{width:34,height:34,borderRadius:9,background:G.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:G.accent,fontSize:14,flexShrink:0}}>{user?.username?.[0]?.toUpperCase()}</div>
+            <div style={{overflow:"hidden"}}>
+              <p style={{fontSize:13,fontWeight:700,color:G.textPrimary,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{user?.username}</p>
+              <p style={{fontSize:10,color:user?.isOwner?G.gold:G.textMuted}}>{user?.isOwner?"👑 Owner":"Collector"}</p>
+            </div>
+          </div>
+          <Btn variant="ghost" small onClick={onLogout} style={{width:"100%",justifyContent:"center"}}>Sign Out</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function Dashboard({groups,members,collections}){
+  const today=new Date().toISOString().split("T")[0];
+  const todayTotal=collections.filter(c=>c.date===today).reduce((a,c)=>a+Number(c.amount),0);
+  const pendingTotal=members.reduce((a,m)=>a+(Number(m.pending)*Number(m.monthlyAmount||5000)),0);
+  const defaulters=members.filter(m=>Number(m.pending)>0);
+  return(
+    <div className="page-enter">
+      <div style={{marginBottom:24}}>
+        <h2 style={{fontSize:24,fontWeight:800,letterSpacing:-0.5}}>Dashboard</h2>
+        <p style={{color:G.textSecondary,fontSize:13,marginTop:2}}>Welcome back! Here's your chit fund overview.</p>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:14,marginBottom:24}}>
+        <StatCard label="Active Groups" value={groups.filter(g=>g.active==="true"||g.active===true).length} icon="◈" color={G.accent} sub="Chit schemes running"/>
+        <StatCard label="Total Members" value={members.length} icon="◉" color={G.blue} sub="Enrolled members"/>
+        <StatCard label="Today's Collection" value={`₹${todayTotal?todayTotal.toLocaleString("en-IN"):"0"}`} icon="💰" color={G.accent} sub={today}/>
+        <StatCard label="Pending Amount" value={`₹${pendingTotal.toLocaleString("en-IN")}`} icon="⏳" color={G.gold} sub="Total outstanding"/>
+        <StatCard label="Defaulters" value={defaulters.length} icon="⚠" color={G.red} sub="Members with dues"/>
+        <StatCard label="Upcoming Auctions" value="2" icon="🔔" color={G.purple} sub="This month"/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <Card>
+          <h3 style={{fontWeight:700,fontSize:14,marginBottom:14,color:G.textSecondary}}>ACTIVE CHIT GROUPS</h3>
+          {groups.length===0&&<p style={{color:G.textMuted,fontSize:13}}>No groups yet. Create one!</p>}
+          {groups.map(g=>(
+            <div key={g._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:`1px solid ${G.border}`}}>
+              <div>
+                <p style={{fontWeight:700,fontSize:13}}>{g.name}</p>
+                <p style={{color:G.textSecondary,fontSize:11}}>₹{Number(g.amount).toLocaleString("en-IN")} × {g.duration} months</p>
+              </div>
+              <Badge color={G.accent}>Active</Badge>
+            </div>
+          ))}
+        </Card>
+        <Card>
+          <h3 style={{fontWeight:700,fontSize:14,marginBottom:14,color:G.textSecondary}}>DEFAULTERS ALERT</h3>
+          {defaulters.length===0&&<p style={{color:G.accent,fontSize:13}}>✓ No defaulters! All payments up to date.</p>}
+          {defaulters.map(m=>(
+            <div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"11px 0",borderBottom:`1px solid ${G.border}`}}>
+              <div>
+                <p style={{fontWeight:700,fontSize:13}}>{m.name}</p>
+                <p style={{color:G.textSecondary,fontSize:11}}>{m.group} · {m.mobile}</p>
+              </div>
+              <Badge color={G.red}>{m.pending} due</Badge>
+            </div>
+          ))}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ─── CHIT GROUPS ──────────────────────────────────────────────────────────────
+function Groups({groups,setGroups,idToken,showToast}){
+  const [modal,setModal]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [form,setForm]=useState({name:"",amount:"",duration:"",members:"",start:"",end:""});
+  const add=async()=>{
+    if(!form.name||!form.amount){showToast("Name and amount required","error");return;}
+    setLoading(true);
+    try{
+      const doc=await db.add("groups",{...form,active:"true",collected:"0",createdAt:new Date().toISOString()},idToken);
+      setGroups(p=>[...p,doc]);setModal(false);setForm({name:"",amount:"",duration:"",members:"",start:"",end:""});
+      showToast("Chit group created successfully!");
+    }catch(e){showToast(e.message,"error");}
+    setLoading(false);
+  };
+  return(
+    <div className="page-enter">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}}>
+        <div><h2 style={{fontSize:24,fontWeight:800,letterSpacing:-0.5}}>Chit Groups</h2><p style={{color:G.textSecondary,fontSize:13}}>Manage all chit schemes</p></div>
+        <Btn onClick={()=>setModal(true)}>+ New Group</Btn>
+      </div>
+      {groups.length===0&&<Card style={{textAlign:"center",padding:48}}><p style={{fontSize:40,marginBottom:12}}>◈</p><p style={{color:G.textSecondary,fontSize:15}}>No chit groups yet. Create your first group!</p></Card>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:16}}>
+        {groups.map(g=>{
+          const total=Number(g.amount)*Number(g.duration)*Number(g.members);
+          const pct=total>0?Math.min(100,(Number(g.collected)/total)*100):0;
+          return(
+            <Card key={g._id}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}><span style={{fontWeight:800,fontSize:15}}>{g.name}</span><Badge color={G.accent}>Active</Badge></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+                {[["Monthly",`₹${Number(g.amount).toLocaleString("en-IN")}`],["Duration",`${g.duration} mo`],["Members",g.members],["Collected",`₹${Number(g.collected||0).toLocaleString("en-IN")}`]].map(([k,v])=>(
+                  <div key={k} style={{background:G.surface,borderRadius:8,padding:"8px 11px"}}>
+                    <p style={{fontSize:10,color:G.textMuted,marginBottom:2}}>{k}</p>
+                    <p style={{fontSize:13,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{v}</p>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:11,color:G.textSecondary,display:"flex",justifyContent:"space-between",marginBottom:6}}><span>{g.start} → {g.end}</span><span>{pct.toFixed(0)}%</span></div>
+              <div style={{height:5,background:G.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${G.accent},${G.blue})`,borderRadius:3,transition:"width 0.5s"}}/></div>
+            </Card>
+          );
+        })}
+      </div>
+      <Modal open={modal} onClose={()=>setModal(false)} title="Create Chit Group">
+        <Input label="Chit Name" value={form.name} onChange={v=>setForm({...form,name:v})} placeholder="e.g. Gold Chit A" required/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Input label="Monthly Amount (₹)" type="number" value={form.amount} onChange={v=>setForm({...form,amount:v})} placeholder="5000" required/>
+          <Input label="Duration (months)" type="number" value={form.duration} onChange={v=>setForm({...form,duration:v})} placeholder="20"/>
+        </div>
+        <Input label="Number of Members" type="number" value={form.members} onChange={v=>setForm({...form,members:v})} placeholder="20"/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Input label="Start Date" type="date" value={form.start} onChange={v=>setForm({...form,start:v})}/>
+          <Input label="End Date" type="date" value={form.end} onChange={v=>setForm({...form,end:v})}/>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:6}}>
+          <Btn onClick={add} loading={loading} style={{flex:1,justifyContent:"center"}}>Create Group</Btn>
+          <Btn variant="ghost" onClick={()=>setModal(false)} style={{flex:1,justifyContent:"center"}}>Cancel</Btn>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ─── MEMBERS ──────────────────────────────────────────────────────────────────
+function Members({members,setMembers,groups,idToken,showToast}){
+  const [modal,setModal]=useState(false);
+  const [search,setSearch]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [form,setForm]=useState({name:"",mobile:"",address:"",aadhaar:"",pan:"",nominee:"",joining:new Date().toISOString().split("T")[0],group:"",monthlyAmount:"",paid:"0",pending:"0"});
+  const filtered=members.filter(m=>m.name?.toLowerCase().includes(search.toLowerCase())||m.mobile?.includes(search)||m.group?.toLowerCase().includes(search.toLowerCase()));
+  const add=async()=>{
+    if(!form.name||!form.mobile){showToast("Name and mobile required","error");return;}
+    setLoading(true);
+    try{
+      const doc=await db.add("members",{...form,status:"active",createdAt:new Date().toISOString()},idToken);
+      setMembers(p=>[...p,doc]);setModal(false);
+      setForm({name:"",mobile:"",address:"",aadhaar:"",pan:"",nominee:"",joining:new Date().toISOString().split("T")[0],group:"",monthlyAmount:"",paid:"0",pending:"0"});
+      showToast(`Member ${form.name} added!`);
+    }catch(e){showToast(e.message,"error");}
+    setLoading(false);
+  };
+  return(
+    <div className="page-enter">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <div><h2 style={{fontSize:24,fontWeight:800,letterSpacing:-0.5}}>Members</h2><p style={{color:G.textSecondary,fontSize:13}}>{members.length} enrolled members</p></div>
+        <Btn onClick={()=>setModal(true)}>+ Add Member</Btn>
+      </div>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍  Search by name, mobile, or group..."
+        style={{width:"100%",background:G.card,border:`1px solid ${G.border}`,borderRadius:10,padding:"10px 16px",color:G.textPrimary,fontSize:13,marginBottom:16}}/>
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr style={{background:G.surface}}>
+            {["Member","Mobile","Group","Paid","Pending","Status","Actions"].map(h=>(
+              <th key={h} style={{padding:"12px 16px",textAlign:"left",fontSize:10,color:G.textMuted,fontWeight:700,letterSpacing:1}}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {filtered.length===0&&<tr><td colSpan={7} style={{padding:32,textAlign:"center",color:G.textMuted}}>No members found</td></tr>}
+            {filtered.map((m,i)=>(
+              <tr key={m._id} style={{borderTop:`1px solid ${G.border}`,background:i%2?"#ffffff02":"transparent"}}>
+                <td style={{padding:"12px 16px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{width:36,height:36,borderRadius:9,background:G.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,color:G.accent,flexShrink:0}}>{m.name?.[0]?.toUpperCase()}</div>
+                    <div><p style={{fontWeight:700,fontSize:13}}>{m.name}</p>{m.nominee&&<p style={{fontSize:10,color:G.textMuted}}>Nominee: {m.nominee}</p>}</div>
+                  </div>
+                </td>
+                <td style={{padding:"12px 16px",fontFamily:"'JetBrains Mono',monospace",fontSize:12}}>{m.mobile}</td>
+                <td style={{padding:"12px 16px",fontSize:12,color:G.textSecondary}}>{m.group}</td>
+                <td style={{padding:"12px 16px",fontSize:13,color:G.accent,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{m.paid}</td>
+                <td style={{padding:"12px 16px",fontSize:13,color:Number(m.pending)>0?G.red:G.textSecondary,fontWeight:700,fontFamily:"'JetBrains Mono',monospace"}}>{m.pending}</td>
+                <td style={{padding:"12px 16px"}}><Badge color={Number(m.pending)>0?G.red:G.accent}>{Number(m.pending)>0?"Defaulter":"Active"}</Badge></td>
+                <td style={{padding:"12px 16px"}}>
+                  <Btn small variant="whatsapp" onClick={()=>whatsapp.sendMessage(m.mobile,whatsapp.dueReminder(m.name,m.group,m.monthlyAmount||5000,new Date().toLocaleString("en-IN",{month:"long",year:"numeric"})))}>💬</Btn>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+      <Modal open={modal} onClose={()=>setModal(false)} title="Add New Member">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Input label="Full Name" value={form.name} onChange={v=>setForm({...form,name:v})} required/>
+          <Input label="Mobile Number" value={form.mobile} onChange={v=>setForm({...form,mobile:v})} placeholder="9XXXXXXXXX" required/>
+        </div>
+        <Input label="Address" value={form.address} onChange={v=>setForm({...form,address:v})}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Input label="Aadhaar (Optional)" value={form.aadhaar} onChange={v=>setForm({...form,aadhaar:v})}/>
+          <Input label="PAN (Optional)" value={form.pan} onChange={v=>setForm({...form,pan:v})}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Input label="Nominee Name" value={form.nominee} onChange={v=>setForm({...form,nominee:v})}/>
+          <Input label="Joining Date" type="date" value={form.joining} onChange={v=>setForm({...form,joining:v})}/>
+        </div>
+        <Select label="Chit Group" value={form.group} onChange={v=>{
+          const grp=groups.find(g=>g.name===v);
+          setForm({...form,group:v,monthlyAmount:grp?.amount||""});
+        }} options={[{value:"",label:"Select group"},...groups.map(g=>({value:g.name,label:`${g.name} (₹${Number(g.amount).toLocaleString("en-IN")})`}))]}/>
+        <div style={{display:"flex",gap:10,marginTop:6}}>
+          <Btn onClick={add} loading={loading} style={{flex:1,justifyContent:"center"}}>Add Member</Btn>
+          <Btn variant="ghost" onClick={()=>setModal(false)} style={{flex:1,justifyContent:"center"}}>Cancel</Btn>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ─── COLLECTIONS ──────────────────────────────────────────────────────────────
+function Collections({collections,setCollections,members,groups,idToken,showToast}){
+  const [modal,setModal]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [form,setForm]=useState({member:"",mobile:"",group:"",amount:"",date:new Date().toISOString().split("T")[0],method:"Cash"});
+  const add=async()=>{
+    if(!form.member||!form.amount){showToast("Member and amount required","error");return;}
+    setLoading(true);
+    try{
+      const receiptNo=`RCP-${String(collections.length+1).padStart(4,"0")}`;
+      const doc=await db.add("collections",{...form,receipt:receiptNo,createdAt:new Date().toISOString()},idToken);
+      setCollections(p=>[doc,...p]);setModal(false);
+      showToast(`Payment recorded! Receipt: ${receiptNo}`);
+      if(form.mobile){setTimeout(()=>{whatsapp.sendMessage(form.mobile,whatsapp.receiptMessage(form.member,form.group,form.amount,receiptNo,form.date,form.method));},500);}
+      setForm({member:"",mobile:"",group:"",amount:"",date:new Date().toISOString().split("T")[0],method:"Cash"});
+    }catch(e){showToast(e.message,"error");}
+    setLoading(false);
+  };
+  const total=collections.reduce((a,c)=>a+Number(c.amount),0);
+  return(
+    <div className="page-enter">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <div>
+          <h2 style={{fontSize:24,fontWeight:800,letterSpacing:-0.5}}>Collections</h2>
+          <p style={{color:G.textSecondary,fontSize:13}}>Total collected: <span style={{color:G.accent,fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>₹{total.toLocaleString("en-IN")}</span></p>
+        </div>
+        <Btn onClick={()=>setModal(true)}>+ Record Payment</Btn>
+      </div>
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead><tr style={{background:G.surface}}>
+            {["Receipt","Member","Group","Amount","Date","Method","WhatsApp"].map(h=>(
+              <th key={h} style={{padding:"12px 16px",textAlign:"left",fontSize:10,color:G.textMuted,fontWeight:700,letterSpacing:1}}>{h}</th>
+            ))}
+          </tr></thead>
+          <tbody>
+            {collections.length===0&&<tr><td colSpan={7} style={{padding:32,textAlign:"center",color:G.textMuted}}>No payments recorded yet</td></tr>}
+            {collections.map((c)=>(
+              <tr key={c._id} style={{borderTop:`1px solid ${G.border}`}}>
+                <td style={{padding:"12px 16px",fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:G.accent}}>{c.receipt}</td>
+                <td style={{padding:"12px 16px",fontWeight:700,fontSize:13}}>{c.member}</td>
+                <td style={{padding:"12px 16px",fontSize:12,color:G.textSecondary}}>{c.group}</td>
+                <td style={{padding:"12px 16px",fontSize:14,fontWeight:800,color:G.accent,fontFamily:"'JetBrains Mono',monospace"}}>₹{Number(c.amount).toLocaleString("en-IN")}</td>
+                <td style={{padding:"12px 16px",fontSize:12,color:G.textSecondary}}>{c.date}</td>
+                <td style={{padding:"12px 16px"}}><Badge color={c.method==="Cash"?G.gold:c.method==="UPI"?G.blue:G.purple}>{c.method}</Badge></td>
+                <td style={{padding:"12px 16px"}}>
+                  <Btn small variant="whatsapp" onClick={()=>{
+                    if(!c.mobile){showToast("No mobile number saved","error");return;}
+                    whatsapp.sendMessage(c.mobile,whatsapp.receiptMessage(c.member,c.group,c.amount,c.receipt,c.date,c.method));
+                  }}>💬 Send</Btn>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+      <Modal open={modal} onClose={()=>setModal(false)} title="Record Payment">
+        <div style={{background:G.accentSoft,border:`1px solid ${G.accent}33`,borderRadius:9,padding:"10px 14px",marginBottom:16,fontSize:12,color:G.accent}}>💬 WhatsApp receipt will be sent automatically</div>
+        <Select label="Member" value={form.member} onChange={v=>{
+          const m=members.find(x=>x.name===v);
+          setForm({...form,member:v,mobile:m?.mobile||"",group:m?.group||"",amount:m?.monthlyAmount||""});
+        }} options={[{value:"",label:"Select member"},...members.map(m=>({value:m.name,label:`${m.name} — ${m.mobile}`}))]}/>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Input label="Mobile" value={form.mobile} onChange={v=>setForm({...form,mobile:v})} placeholder="9XXXXXXXXX"/>
+          <Input label="Group" value={form.group} onChange={v=>setForm({...form,group:v})}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+          <Input label="Amount (₹)" type="number" value={form.amount} onChange={v=>setForm({...form,amount:v})} required/>
+          <Input label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+        </div>
+        <Select label="Payment Method" value={form.method} onChange={v=>setForm({...form,method:v})} options={[{value:"Cash",label:"Cash"},{value:"UPI",label:"UPI"},{value:"Bank Transfer",label:"Bank Transfer"},{value:"Cheque",label:"Cheque"}]}/>
+        <div style={{display:"flex",gap:10,marginTop:6}}>
+          <Btn onClick={add} loading={loading} variant="success" style={{flex:1,justifyContent:"center"}}>✓ Record + Send WhatsApp</Btn>
+          <Btn variant="ghost" onClick={()=>setModal(false)} style={{flex:1,justifyContent:"center"}}>Cancel</Btn>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ─── RECEIPTS ─────────────────────────────────────────────────────────────────
+function Receipts({collections,showToast}){
+  const [sel,setSel]=useState(null);
+  const r=sel||collections[0];
+  return(
+    <div className="page-enter">
+      <div style={{marginBottom:20}}><h2 style={{fontSize:24,fontWeight:800,letterSpacing:-0.5}}>Receipts</h2><p style={{color:G.textSecondary,fontSize:13}}>View and share payment receipts</p></div>
+      <div style={{display:"grid",gridTemplateColumns:"260px 1fr",gap:16}}>
+        <Card style={{padding:0,overflow:"hidden",maxHeight:600,overflowY:"auto"}}>
+          {collections.length===0&&<p style={{padding:20,color:G.textMuted,fontSize:13}}>No receipts yet</p>}
+          {collections.map(c=>(
+            <div key={c._id} onClick={()=>setSel(c)} style={{padding:"13px 16px",borderBottom:`1px solid ${G.border}`,cursor:"pointer",background:sel?._id===c._id?G.accentSoft:"transparent",transition:"background 0.15s"}}>
+              <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:G.accent}}>{c.receipt}</span><span style={{fontSize:10,color:G.textMuted}}>{c.date}</span></div>
+              <p style={{fontWeight:700,fontSize:13,marginTop:3}}>{c.member}</p>
+              <p style={{color:G.accent,fontWeight:700,fontSize:13,fontFamily:"'JetBrains Mono',monospace"}}>₹{Number(c.amount).toLocaleString("en-IN")}</p>
+            </div>
+          ))}
+        </Card>
+        {r?(
+          <Card>
+            <div style={{border:`1px solid ${G.border}`,borderRadius:14,padding:28,maxWidth:460,margin:"0 auto"}}>
+              <div style={{textAlign:"center",marginBottom:22,paddingBottom:18,borderBottom:`1px dashed ${G.border}`}}>
+                <div style={{width:50,height:50,background:`linear-gradient(135deg,${G.accent},${G.blue})`,borderRadius:14,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,margin:"0 auto 10px"}}>₹</div>
+                <h2 style={{fontSize:18,fontWeight:800}}>ChitVault</h2>
+                <p style={{fontSize:10,color:G.textSecondary,letterSpacing:2,marginTop:2}}>PAYMENT RECEIPT</p>
+              </div>
+              <div style={{display:"grid",gap:8,marginBottom:20}}>
+                {[["Receipt No",r.receipt],["Date",r.date],["Member Name",r.member],["Chit Group",r.group],["Payment Method",r.method]].map(([k,v])=>(
+                  <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:`1px solid ${G.border}`}}>
+                    <span style={{fontSize:12,color:G.textSecondary}}>{k}</span>
+                    <span style={{fontSize:13,fontWeight:700}}>{v}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{background:G.accentSoft,border:`1px solid ${G.accent}33`,borderRadius:10,padding:"16px 20px",textAlign:"center",marginBottom:18}}>
+                <p style={{fontSize:10,color:G.textSecondary,letterSpacing:1,marginBottom:4}}>AMOUNT PAID</p>
+                <p style={{fontSize:34,fontWeight:800,color:G.accent,fontFamily:"'JetBrains Mono',monospace"}}>₹{Number(r.amount).toLocaleString("en-IN")}</p>
+              </div>
+              <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+                <Btn small onClick={()=>window.print()}>🖨 Print</Btn>
+                <Btn small variant="whatsapp" onClick={()=>{if(!r.mobile){showToast("No mobile saved","error");return;}whatsapp.sendMessage(r.mobile,whatsapp.receiptMessage(r.member,r.group,r.amount,r.receipt,r.date,r.method));}}>💬 WhatsApp</Btn>
+              </div>
+            </div>
+          </Card>
+        ):<Card style={{display:"flex",alignItems:"center",justifyContent:"center",color:G.textMuted}}>Select a receipt to view</Card>}
+      </div>
+    </div>
+  );
+}
+
+// ─── WHATSAPP REMINDERS ───────────────────────────────────────────────────────
+function WAReminders({members,showToast}){
+  const [sentLog,setSentLog]=useState([]);
+  const [loading,setLoading]=useState("");
+  const send=(type,m)=>{
+    const key=`${type}-${m._id}`;setLoading(key);
+    const month=new Date().toLocaleString("en-IN",{month:"long",year:"numeric"});
+    const msgs={
+      due:whatsapp.dueReminder(m.name,m.group,m.monthlyAmount||5000,month),
+      overdue:whatsapp.overdueReminder(m.name,m.group,(Number(m.pending)*Number(m.monthlyAmount||5000)),m.pending),
+      auction:whatsapp.auctionNotice(m.name,m.group,"15th "+month),
+    };
+    whatsapp.sendMessage(m.mobile,msgs[type]);
+    setTimeout(()=>{setSentLog(p=>[...p,key]);setLoading("");showToast(`WhatsApp opened for ${m.name}`);},500);
+  };
+  const sendAll=type=>members.forEach((m,i)=>setTimeout(()=>send(type,m),i*300));
+  return(
+    <div className="page-enter">
+      <div style={{marginBottom:22}}><h2 style={{fontSize:24,fontWeight:800,letterSpacing:-0.5}}>WhatsApp Reminders</h2><p style={{color:G.textSecondary,fontSize:13}}>Send payment reminders directly via WhatsApp</p></div>
+      <div style={{background:"#25D36615",border:"1px solid #25D36633",borderRadius:12,padding:"14px 18px",marginBottom:20,display:"flex",gap:12,alignItems:"center"}}>
+        <span style={{fontSize:22}}>💬</span>
+        <div><p style={{fontWeight:700,color:G.whatsapp,fontSize:14}}>WhatsApp Web Links Active</p><p style={{fontSize:12,color:G.textSecondary}}>Clicking send opens WhatsApp with a pre-filled message.</p></div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:24}}>
+        {[{id:"due",label:"Due Reminder",desc:"Monthly payment reminder",color:G.blue,emoji:"⏰"},{id:"overdue",label:"Overdue Alert",desc:"For members with pending dues",color:G.red,emoji:"🚨"},{id:"auction",label:"Auction Notice",desc:"Upcoming auction notification",color:G.purple,emoji:"🔔"}].map(t=>(
+          <Card key={t.id} style={{borderTop:`3px solid ${t.color}`}}>
+            <div style={{fontSize:28,marginBottom:10}}>{t.emoji}</div>
+            <p style={{fontWeight:800,fontSize:14,marginBottom:4}}>{t.label}</p>
+            <p style={{fontSize:12,color:G.textSecondary,marginBottom:14}}>{t.desc}</p>
+            <Btn small variant="whatsapp" onClick={()=>sendAll(t.id)} style={{width:"100%",justifyContent:"center"}}>Send to All ({members.length})</Btn>
+          </Card>
+        ))}
+      </div>
+      <Card>
+        <h3 style={{fontWeight:700,fontSize:14,marginBottom:14,color:G.textSecondary}}>INDIVIDUAL SEND</h3>
+        {members.length===0&&<p style={{color:G.textMuted,fontSize:13}}>No members added yet</p>}
+        {members.map(m=>(
+          <div key={m._id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:`1px solid ${G.border}`}}>
+            <div style={{width:38,height:38,borderRadius:9,background:G.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,color:G.accent,flexShrink:0}}>{m.name?.[0]?.toUpperCase()}</div>
+            <div style={{flex:1,minWidth:0}}><p style={{fontWeight:700,fontSize:13}}>{m.name}</p><p style={{fontSize:11,color:G.textSecondary,fontFamily:"'JetBrains Mono',monospace"}}>{m.mobile} · {m.group}</p></div>
+            <div style={{display:"flex",gap:6,flexShrink:0}}>
+              {["due","overdue","auction"].map(type=>{
+                const key=`${type}-${m._id}`;const sent=sentLog.includes(key);
+                return(<Btn key={type} small variant={sent?"success":"whatsapp"} loading={loading===key} onClick={()=>send(type,m)} style={{minWidth:60}}>{sent?"✓":type==="due"?"⏰":type==="overdue"?"🚨":"🔔"}</Btn>);
+              })}
+            </div>
+          </div>
+        ))}
+      </Card>
+    </div>
+  );
+}
+
+// ─── REPORTS ──────────────────────────────────────────────────────────────────
+function Reports({groups,members,collections}){
+  const totalCollected=collections.reduce((a,c)=>a+Number(c.amount),0);
+  const activeMembers=members.filter(m=>Number(m.pending)===0).length;
+  const defaulters=members.filter(m=>Number(m.pending)>0);
+  return(
+    <div className="page-enter">
+      <div style={{marginBottom:22}}><h2 style={{fontSize:24,fontWeight:800,letterSpacing:-0.5}}>Reports</h2><p style={{color:G.textSecondary,fontSize:13}}>Financial analytics & insights</p></div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <Card>
+          <h3 style={{fontWeight:700,fontSize:13,color:G.textSecondary,letterSpacing:0.8,marginBottom:16}}>GROUP-WISE PERFORMANCE</h3>
+          {groups.length===0&&<p style={{color:G.textMuted,fontSize:13}}>No groups yet</p>}
+          {groups.map(g=>{
+            const total=Number(g.amount)*Number(g.duration)*Number(g.members);
+            const pct=total>0?Math.min(100,(Number(g.collected||0)/total)*100):0;
+            return(<div key={g._id} style={{marginBottom:16}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><span style={{fontWeight:700,fontSize:13}}>{g.name}</span><span style={{fontSize:12,color:G.textSecondary,fontFamily:"'JetBrains Mono',monospace"}}>₹{Number(g.collected||0).toLocaleString("en-IN")}</span></div>
+              <div style={{height:6,background:G.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:`linear-gradient(90deg,${G.accent},${G.blue})`,borderRadius:3}}/></div>
+              <p style={{fontSize:10,color:G.textMuted,marginTop:3}}>{pct.toFixed(1)}% of target</p>
+            </div>);
+          })}
+        </Card>
+        <Card>
+          <h3 style={{fontWeight:700,fontSize:13,color:G.textSecondary,letterSpacing:0.8,marginBottom:16}}>SUMMARY</h3>
+          {[["Total Chit Groups",groups.length,G.accent],["Total Members",members.length,G.blue],["Active Members",activeMembers,G.accent],["Defaulters",defaulters.length,G.red],["Total Collected",`₹${totalCollected.toLocaleString("en-IN")}`,G.accent]].map(([k,v,c])=>(
+            <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${G.border}`}}>
+              <span style={{fontSize:13,color:G.textSecondary}}>{k}</span>
+              <span style={{fontWeight:800,color:c,fontFamily:"'JetBrains Mono',monospace"}}>{v}</span>
+            </div>
+          ))}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ─── USER MANAGER ─────────────────────────────────────────────────────────────
+function UserManager({idToken,showToast}){
+  const [users,setUsers]=useState([]);
+  const [modal,setModal]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [fetching,setFetching]=useState(true);
+  const [form,setForm]=useState({username:"",password:"",role:"collector",mobile:""});
+  useEffect(()=>{db.getAll("app_users",idToken).then(data=>{setUsers(data);setFetching(false);});},[idToken]);
+  const toEmail=u=>`${u.toLowerCase().replace(/\s+/g,"")}@chitvault.app`;
+  const createUser=async()=>{
+    if(!form.username||!form.password){showToast("Username and password required","error");return;}
+    if(form.password.length<6){showToast("Password must be at least 6 characters","error");return;}
+    setLoading(true);
+    try{
+      const email=toEmail(form.username);
+      await firebaseAuth.createUser(email,form.password);
+      const doc=await db.add("app_users",{username:form.username,email,role:form.role,mobile:form.mobile,createdAt:new Date().toISOString(),active:"true"},idToken);
+      setUsers(p=>[...p,doc]);setModal(false);setForm({username:"",password:"",role:"collector",mobile:""});
+      showToast(`User ${form.username} created!`);
+    }catch(e){showToast(e.message.includes("EMAIL_EXISTS")?"Username already taken":e.message,"error");}
+    setLoading(false);
+  };
+  const deleteUser=async(u)=>{
+    if(!window.confirm(`Delete user ${u.username}?`))return;
+    await db.delete("app_users",u._id,idToken);
+    setUsers(p=>p.filter(x=>x._id!==u._id));showToast(`User ${u.username} removed`);
+  };
+  return(
+    <div className="page-enter">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+        <div><h2 style={{fontSize:24,fontWeight:800,letterSpacing:-0.5}}>User Manager</h2><p style={{color:G.textSecondary,fontSize:13}}>Create login credentials for your staff</p></div>
+        <Btn onClick={()=>setModal(true)}>+ Create User</Btn>
+      </div>
+      <div style={{background:G.goldSoft,border:`1px solid ${G.gold}33`,borderRadius:12,padding:"12px 18px",marginBottom:20,fontSize:12,color:G.gold}}>👑 Owner access only — Create usernames & passwords for collectors and viewers</div>
+      {fetching?<div style={{display:"flex",justifyContent:"center",padding:48}}><Spinner size={32}/></div>:(
+        <Card style={{padding:0,overflow:"hidden"}}>
+          <table style={{width:"100%",borderCollapse:"collapse"}}>
+            <thead><tr style={{background:G.surface}}>{["Username","Role","Email","Mobile","Created","Actions"].map(h=><th key={h} style={{padding:"12px 16px",textAlign:"left",fontSize:10,color:G.textMuted,fontWeight:700,letterSpacing:1}}>{h}</th>)}</tr></thead>
+            <tbody>
+              <tr style={{borderTop:`1px solid ${G.border}`,background:G.goldSoft}}>
+                <td style={{padding:"12px 16px"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:34,height:34,borderRadius:9,background:G.goldSoft,border:`1px solid ${G.gold}44`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,color:G.gold}}>H</div><span style={{fontWeight:700,fontSize:13}}>harikrishna</span></div></td>
+                <td style={{padding:"12px 16px"}}><Badge color={G.gold}>👑 Owner</Badge></td>
+                <td style={{padding:"12px 16px",fontSize:12,color:G.textSecondary,fontFamily:"'JetBrains Mono',monospace"}}>harikrishna@chitvault.app</td>
+                <td style={{padding:"12px 16px",fontSize:12,color:G.textSecondary}}>—</td>
+                <td style={{padding:"12px 16px",fontSize:12,color:G.textMuted}}>System</td>
+                <td style={{padding:"12px 16px"}}><Badge color={G.accent}>Protected</Badge></td>
+              </tr>
+              {users.length===0&&<tr><td colSpan={6} style={{padding:24,textAlign:"center",color:G.textMuted,fontSize:13}}>No users created yet. Add your first staff member!</td></tr>}
+              {users.map(u=>(
+                <tr key={u._id} style={{borderTop:`1px solid ${G.border}`}}>
+                  <td style={{padding:"12px 16px"}}><div style={{display:"flex",alignItems:"center",gap:10}}><div style={{width:34,height:34,borderRadius:9,background:G.accentSoft,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,color:G.accent}}>{u.username?.[0]?.toUpperCase()}</div><span style={{fontWeight:700,fontSize:13}}>{u.username}</span></div></td>
+                  <td style={{padding:"12px 16px"}}><Badge color={u.role==="manager"?G.purple:G.blue}>{u.role}</Badge></td>
+                  <td style={{padding:"12px 16px",fontSize:12,color:G.textSecondary,fontFamily:"'JetBrains Mono',monospace"}}>{u.email}</td>
+                  <td style={{padding:"12px 16px",fontSize:12,color:G.textSecondary}}>{u.mobile||"—"}</td>
+                  <td style={{padding:"12px 16px",fontSize:11,color:G.textMuted}}>{u.createdAt?.split("T")[0]}</td>
+                  <td style={{padding:"12px 16px"}}><Btn small variant="danger" onClick={()=>deleteUser(u)}>Remove</Btn></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+      <Modal open={modal} onClose={()=>setModal(false)} title="Create New User">
+        <Input label="Username" value={form.username} onChange={v=>setForm({...form,username:v})} placeholder="e.g. ramu_collector" required/>
+        <Input label="Password" type="password" value={form.password} onChange={v=>setForm({...form,password:v})} placeholder="Minimum 6 characters" required/>
+        <Select label="Role" value={form.role} onChange={v=>setForm({...form,role:v})} options={[{value:"collector",label:"Collector (can record payments)"},{value:"manager",label:"Manager (full access)"},{value:"viewer",label:"Viewer (read-only)"}]}/>
+        <Input label="Mobile (Optional)" value={form.mobile} onChange={v=>setForm({...form,mobile:v})} placeholder="9XXXXXXXXX"/>
+        <div style={{display:"flex",gap:10}}>
+          <Btn onClick={createUser} loading={loading} style={{flex:1,justifyContent:"center"}}>Create User</Btn>
+          <Btn variant="ghost" onClick={()=>setModal(false)} style={{flex:1,justifyContent:"center"}}>Cancel</Btn>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ─── APP ──────────────────────────────────────────────────────────────────────
+function App(){
+  const [user,setUser]=useState(null);
+  const [page,setPage]=useState("dashboard");
+  const [collapsed,setCollapsed]=useState(false);
+  const [groups,setGroups]=useState([]);
+  const [members,setMembers]=useState([]);
+  const [collections,setCollections]=useState([]);
+  const [dataLoading,setDataLoading]=useState(false);
+  const [toast,setToast]=useState({msg:"",type:"success"});
+  const isOnline=useOnlineStatus();
+  const showToast=(msg,type="success")=>{setToast({msg,type});setTimeout(()=>setToast({msg:"",type:"success"}),3500);};
+  const onLogin=async(userData)=>{
+    setUser(userData);setDataLoading(true);
+    try{
+      const [g,m,c]=await Promise.all([db.getAll("groups",userData.idToken),db.getAll("members",userData.idToken),db.getAll("collections",userData.idToken)]);
+      setGroups(g);setMembers(m);setCollections(c.sort((a,b)=>b.createdAt?.localeCompare(a.createdAt||"")||0));
+    }catch(e){showToast("Could not load data — check Firestore rules","error");}
+    setDataLoading(false);
+  };
+  if(!user)return<Login onLogin={onLogin}/>;
+  const ml=collapsed?62:230;
+  const sp={idToken:user.idToken,showToast};
+  const pages={
+    dashboard:<Dashboard groups={groups} members={members} collections={collections}/>,
+    groups:<Groups groups={groups} setGroups={setGroups} {...sp}/>,
+    members:<Members members={members} setMembers={setMembers} groups={groups} {...sp}/>,
+    collections:<Collections collections={collections} setCollections={setCollections} members={members} groups={groups} {...sp}/>,
+    receipts:<Receipts collections={collections} showToast={showToast}/>,
+    reminders:<WAReminders members={members} showToast={showToast}/>,
+    reports:<Reports groups={groups} members={members} collections={collections}/>,
+    users:<UserManager {...sp}/>,
+  };
+  return(
+    <>
+      <Toast msg={toast.msg} type={toast.type}/>
+      {!isOnline&&<div style={{position:"fixed",top:0,left:0,right:0,zIndex:9998,background:G.red,color:"#fff",textAlign:"center",padding:"8px 16px",fontSize:13,fontWeight:700}}>⚠ You are offline — Firebase sync paused</div>}
+      <Sidebar page={page} setPage={setPage} collapsed={collapsed} setCollapsed={setCollapsed} user={user} onLogout={()=>setUser(null)}/>
+      <main style={{marginLeft:ml,minHeight:"100vh",padding:"28px 32px",transition:"margin-left 0.25s"}}>
+        <div style={{maxWidth:1120}}>
+          {dataLoading?(
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",gap:16}}>
+              <Spinner size={40}/><p style={{color:G.textSecondary}}>Loading data from Firebase...</p>
+            </div>
+          ):pages[page]}
+        </div>
+      </main>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+
+  <!-- PWA Service Worker -->
+  <script>
+    if('serviceWorker' in navigator){
+      window.addEventListener('load',()=>{
+        navigator.serviceWorker.register('sw.js').catch(()=>{});
+      });
+    }
+  </script>
+</body>
+</html>
