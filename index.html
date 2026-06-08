@@ -49,8 +49,38 @@
     @media(max-width:768px){
       .desktop-sidebar{display:none!important}
       .bottom-nav{display:block!important}
-      .main-content{margin-left:0!important;padding:16px 12px 80px!important}
+      .main-content{margin-left:0!important;padding:16px 12px 90px!important}
     }
+
+    /* ── Modal: full scroll on iOS Safari ── */
+    .modal-overlay{
+      position:fixed;top:0;left:0;right:0;bottom:0;
+      background:rgba(0,0,0,0.88);
+      z-index:1000;
+      overflow-y:scroll;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior:contain;
+    }
+    .modal-scroll-inner{
+      min-height:100%;
+      display:flex;
+      align-items:flex-start;
+      justify-content:center;
+      padding:20px 12px 120px;
+    }
+    .modal-box{
+      background:#0F1520;border:1px solid #1E2D45;
+      border-radius:18px;padding:0;
+      width:min(calc(100vw - 24px),500px);
+      flex-shrink:0;
+      animation:fadeIn 0.2s ease;
+    }
+    .modal-head{
+      display:flex;justify-content:space-between;align-items:center;
+      padding:16px 20px;border-bottom:1px solid #1E2D45;
+      border-radius:18px 18px 0 0;
+    }
+    .modal-body{padding:16px 20px 20px;}
   </style>
 </head>
 <body>
@@ -110,7 +140,28 @@ const db={
   async delete(col,id,tok){await fetch(`${FIRESTORE_URL}/${col}/${id}`,{method:"DELETE",headers:{Authorization:`Bearer ${tok}`}});},
 };
 
+
+// ── CallMeBot API key storage (per phone, stored in localStorage) ──
+const cmb={
+  // Send via CallMeBot API — fully background, no user tap needed
+  async sendAPI(phone,msg){
+    const n=phone.replace(/\D/g,"");
+    const num=n.startsWith("91")?n:"91"+n;
+    const apiKey=localStorage.getItem(`cmb_key_${num}`);
+    if(!apiKey)return{ok:false,reason:"no_key"};
+    const url=`https://api.callmebot.com/whatsapp.php?phone=${num}&text=${encodeURIComponent(msg)}&apikey=${apiKey}`;
+    try{
+      const res=await fetch(url,{mode:"no-cors"});
+      return{ok:true};
+    }catch(e){return{ok:false,reason:e.message};}
+  },
+  getKey(phone){const n=phone.replace(/\D/g,"");const num=n.startsWith("91")?n:"91"+n;return localStorage.getItem(`cmb_key_${num}`)||"";},
+  saveKey(phone,key){const n=phone.replace(/\D/g,"");const num=n.startsWith("91")?n:"91"+n;localStorage.setItem(`cmb_key_${num}`,key);},
+  hasKey(phone){return!!cmb.getKey(phone)},
+};
+
 const wa={
+  // Manual open (for reminders, fallback)
   send(phone,msg){const n=phone.replace(/\D/g,"");window.open(`https://wa.me/${n.startsWith("91")?n:"91"+n}?text=${encodeURIComponent(msg)}`,"_blank");},
   receipt:(m,g,amt,r,d,mth)=>`✅ *ChitVault Payment Receipt*\n\n📋 Receipt No: *${r}*\n👤 Member: *${m}*\n💰 Chit Group: *${g}*\n💵 Amount Paid: *₹${Number(amt).toLocaleString("en-IN")}*\n📅 Date: *${d}*\n💳 Method: *${mth}*\n\nThank you for your payment! 🙏\n_ChitVault Management_`,
   due:(m,g,amt,mo)=>`⏰ *ChitVault Payment Reminder*\n\nDear *${m}*,\n\nYour chit payment for *${g}* is due.\n💰 Amount: *₹${Number(amt).toLocaleString("en-IN")}*\n📅 Month: *${mo}*\n\nPlease pay at the earliest to avoid penalties.\n_ChitVault Management_`,
@@ -159,13 +210,15 @@ const Badge=({color,children})=><span style={{background:`${color}22`,color,bord
 const Modal=({open,onClose,title,children,width=500})=>{
   if(!open)return null;
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"env(safe-area-inset-top,16px) 12px 80px",overflowY:"auto"}} onClick={onClose}>
-      <div style={{background:G.surface,border:`1px solid ${G.border}`,borderRadius:18,padding:20,width:`min(100%,${width}px)`,marginTop:16,animation:"fadeIn 0.2s ease",flexShrink:0}} onClick={e=>e.stopPropagation()}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18,position:"sticky",top:0,background:G.surface,zIndex:1,paddingBottom:12,borderBottom:`1px solid ${G.border}`}}>
-          <span style={{fontSize:16,fontWeight:800}}>{title}</span>
-          <button onClick={onClose} style={{background:G.card,border:`1px solid ${G.border}`,color:G.textSecondary,width:30,height:30,borderRadius:8,cursor:"pointer",fontSize:16,flexShrink:0}}>×</button>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-scroll-inner">
+        <div className="modal-box" style={{width:`min(calc(100vw - 24px),${width}px)`}} onClick={e=>e.stopPropagation()}>
+          <div className="modal-head">
+            <span style={{fontSize:16,fontWeight:800,color:G.textPrimary}}>{title}</span>
+            <button onClick={onClose} style={{background:G.card,border:`1px solid ${G.border}`,color:G.textSecondary,width:30,height:30,borderRadius:8,cursor:"pointer",fontSize:18,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+          </div>
+          <div className="modal-body">{children}</div>
         </div>
-        <div style={{paddingTop:4}}>{children}</div>
       </div>
     </div>
   );
@@ -688,29 +741,93 @@ function Members({members,setMembers,groups,idToken,showToast,collections}){
 }
 
 // ── COLLECTIONS ───────────────────────────────────────────────────────────────
-function Collections({collections,setCollections,members,groups,idToken,showToast}){
+function Collections({collections,setCollections,members,setMembers,groups,idToken,showToast}){
   const[modal,setModal]=useState(false);
+  const[keyModal,setKeyModal]=useState(false);
+  const[keyPhone,setKeyPhone]=useState("");
+  const[keyValue,setKeyValue]=useState("");
   const[loading,setLoading]=useState(false);
+  const[receiptSent,setReceiptSent]=useState(null);
   const[form,setForm]=useState({member:"",mobile:"",group:"",amount:"",date:new Date().toISOString().split("T")[0],method:"Cash"});
+
+  const selectedMemberHasKey=form.mobile?cmb.hasKey(form.mobile):false;
+
   const add=async()=>{
     if(!form.member||!form.amount){showToast("Member and amount required","error");return;}
     setLoading(true);
     try{
       const receiptNo=`RCP-${String(collections.length+1).padStart(4,"0")}`;
-      const doc=await db.add("collections",{...form,receipt:receiptNo,createdAt:new Date().toISOString()},idToken);
-      setCollections(p=>[doc,...p]);setModal(false);showToast(`Recorded! Receipt: ${receiptNo}`);
-      if(form.mobile)setTimeout(()=>wa.send(form.mobile,wa.receipt(form.member,form.group,form.amount,receiptNo,form.date,form.method)),500);
+      const doc=await db.add("collections",{
+        member:form.member,mobile:form.mobile,group:form.group,
+        amount:form.amount,date:form.date,method:form.method,
+        receipt:receiptNo,createdAt:new Date().toISOString()
+      },idToken);
+      setCollections(p=>[doc,...p]);
+
+      // ── Auto-update member paid/pending count ──
+      const mem=members.find(x=>x.name===form.member);
+      if(mem){
+        const newPaid=String(Number(mem.paid||0)+1);
+        const newPending=String(Math.max(0,Number(mem.pending||0)-1));
+        await fetch(`https://firestore.googleapis.com/v1/projects/chitvault-55a6b/databases/(default)/documents/members/${mem._id}?updateMask.fieldPaths=paid&updateMask.fieldPaths=pending`,{
+          method:"PATCH",
+          headers:{"Content-Type":"application/json",Authorization:`Bearer ${idToken}`},
+          body:JSON.stringify({fields:{paid:{integerValue:newPaid},pending:{integerValue:newPending}}})
+        });
+        setMembers(p=>p.map(x=>x._id===mem._id?{...x,paid:newPaid,pending:newPending}:x));
+      }
+
+      // ── Auto-send receipt via CallMeBot API (fully background) ──
+      const msg=wa.receipt(form.member,form.group,form.amount,receiptNo,form.date,form.method);
+      let sentStatus="no_key";
+      if(form.mobile){
+        const result=await cmb.sendAPI(form.mobile,msg);
+        sentStatus=result.ok?"sent":result.reason;
+      }
+
+      setReceiptSent({receiptNo,member:form.member,mobile:form.mobile,amount:form.amount,group:form.group,date:form.date,method:form.method,msg,status:sentStatus});
+
+      if(sentStatus==="sent") showToast(`✓ Saved & receipt sent automatically — ${receiptNo}`);
+      else if(sentStatus==="no_key") showToast(`✓ Saved — ${receiptNo} (setup API key to auto-send)`,"error");
+      else showToast(`✓ Saved — ${receiptNo}`);
+
+      setModal(false);
       setForm({member:"",mobile:"",group:"",amount:"",date:new Date().toISOString().split("T")[0],method:"Cash"});
     }catch(e){showToast(e.message,"error");}
     setLoading(false);
   };
+
   const total=collections.reduce((a,c)=>a+Number(c.amount),0);
+
   return(
     <div className="page-enter">
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div><h2 style={{fontSize:22,fontWeight:800}}>Collections</h2><p style={{color:G.textSecondary,fontSize:13}}>Total: <span style={{color:G.accent,fontWeight:700}}>₹{total.toLocaleString("en-IN")}</span></p></div>
-        <Btn onClick={()=>setModal(true)}>+ Record</Btn>
+        <div style={{display:"flex",gap:8}}>
+          <Btn small variant="ghost" onClick={()=>{setKeyPhone("");setKeyValue("");setKeyModal(true);}}>🔑 API Keys</Btn>
+          <Btn onClick={()=>setModal(true)}>+ Record</Btn>
+        </div>
       </div>
+
+      {/* Last receipt banner */}
+      {receiptSent&&(
+        <div style={{background:receiptSent.status==="sent"?"#25D36615":G.goldSoft,border:`1px solid ${receiptSent.status==="sent"?"#25D36644":G.gold+"44"}`,borderRadius:12,padding:"12px 16px",marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+            <div style={{flex:1}}>
+              <p style={{fontWeight:800,fontSize:13,color:receiptSent.status==="sent"?"#25D366":G.gold}}>
+                {receiptSent.status==="sent"?"✅ Receipt sent automatically":"⚡ Payment recorded"}
+              </p>
+              <p style={{fontSize:12,color:G.textSecondary,marginTop:2}}>{receiptSent.member} · {receiptSent.receiptNo} · ₹{Number(receiptSent.amount).toLocaleString("en-IN")}</p>
+              {receiptSent.status==="no_key"&&<p style={{fontSize:11,color:G.gold,marginTop:4}}>Setup API key to auto-send receipts → tap 🔑 API Keys</p>}
+            </div>
+            <div style={{display:"flex",gap:6,flexShrink:0}}>
+              {receiptSent.mobile&&<button onClick={()=>wa.send(receiptSent.mobile,receiptSent.msg)} style={{background:"#25D36622",border:"1px solid #25D36644",color:"#25D366",borderRadius:8,padding:"6px 10px",fontSize:11,cursor:"pointer",fontWeight:700}}>💬 Send</button>}
+              <button onClick={()=>setReceiptSent(null)} style={{background:G.surface,border:`1px solid ${G.border}`,color:G.textMuted,borderRadius:8,padding:"6px 8px",fontSize:12,cursor:"pointer"}}>✕</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {collections.length===0&&<Card><p style={{color:G.textMuted,textAlign:"center",fontSize:13}}>No payments recorded yet</p></Card>}
         {collections.map(c=>(
@@ -726,27 +843,80 @@ function Collections({collections,setCollections,members,groups,idToken,showToas
               </div>
               <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
                 <p style={{fontSize:18,fontWeight:800,color:G.accent,fontFamily:"'JetBrains Mono',monospace"}}>₹{Number(c.amount).toLocaleString("en-IN")}</p>
-                <Btn small variant="whatsapp" onClick={()=>{if(!c.mobile){showToast("No mobile saved","error");return;}wa.send(c.mobile,wa.receipt(c.member,c.group,c.amount,c.receipt,c.date,c.method));}}>💬</Btn>
+                <Btn small variant="whatsapp" onClick={async()=>{
+                  if(!c.mobile){showToast("No mobile saved","error");return;}
+                  const msg=wa.receipt(c.member,c.group,c.amount,c.receipt,c.date,c.method);
+                  const r=await cmb.sendAPI(c.mobile,msg);
+                  if(r.ok)showToast("Receipt sent!");
+                  else wa.send(c.mobile,msg);
+                }}>💬 Resend</Btn>
               </div>
             </div>
           </Card>
         ))}
       </div>
+
+      {/* Record Payment Modal */}
       <Modal open={modal} onClose={()=>setModal(false)} title="Record Payment">
-        <div style={{background:G.accentSoft,border:`1px solid ${G.accent}33`,borderRadius:9,padding:"10px 14px",marginBottom:14,fontSize:12,color:G.accent}}>💬 WhatsApp receipt will be sent automatically</div>
-        <Select label="Member" value={form.member} onChange={v=>{const m=members.find(x=>x.name===v);setForm({...form,member:v,mobile:m?.mobile||"",group:m?.group||"",amount:m?.monthlyAmount||""});}} options={[{value:"",label:"Select member"},...members.map(m=>({value:m.name,label:`${m.name} — ${m.mobile}`}))]}/>
+        {/* API key status banner */}
+        {form.mobile?(
+          <div style={{background:selectedMemberHasKey?"#25D36612":G.goldSoft,border:`1px solid ${selectedMemberHasKey?"#25D36633":G.gold+"44"}`,borderRadius:10,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+            <p style={{fontSize:12,color:selectedMemberHasKey?"#25D366":G.gold,fontWeight:600}}>
+              {selectedMemberHasKey?"✅ Auto-receipt enabled for this member":"⚠ No API key — receipt won't auto-send"}
+            </p>
+            {!selectedMemberHasKey&&<button onClick={()=>{setKeyPhone(form.mobile);setKeyValue(cmb.getKey(form.mobile));setKeyModal(true);}} style={{background:G.gold+"22",border:`1px solid ${G.gold}44`,color:G.gold,borderRadius:7,padding:"4px 10px",fontSize:11,cursor:"pointer",fontWeight:700,flexShrink:0}}>Setup</button>}
+          </div>
+        ):(
+          <div style={{background:G.accentSoft,border:`1px solid ${G.accent}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:12,color:G.accent}}>💬 Select a member — receipt auto-sends if API key is set</div>
+        )}
+        <Select label="Member" value={form.member} onChange={v=>{const m=members.find(x=>x.name===v);setForm(f=>({...f,member:v,mobile:m?.mobile||"",group:m?.group||"",amount:m?.monthlyAmount||""}));}} options={[{value:"",label:"Select member"},...members.map(m=>({value:m.name,label:`${m.name} — ${m.mobile}`}))]}/>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-          <Input label="Mobile" value={form.mobile} onChange={v=>setForm({...form,mobile:v})} placeholder="9XXXXXXXXX"/>
-          <Input label="Group" value={form.group} onChange={v=>setForm({...form,group:v})}/>
+          <Input label="Mobile" value={form.mobile} onChange={v=>setForm(f=>({...f,mobile:v}))} placeholder="9XXXXXXXXX"/>
+          <Input label="Group" value={form.group} onChange={v=>setForm(f=>({...f,group:v}))}/>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-          <Input label="Amount (₹)" type="number" value={form.amount} onChange={v=>setForm({...form,amount:v})} required/>
-          <Input label="Date" type="date" value={form.date} onChange={v=>setForm({...form,date:v})}/>
+          <Input label="Amount (₹)" type="number" value={form.amount} onChange={v=>setForm(f=>({...f,amount:v}))} required/>
+          <Input label="Date" type="date" value={form.date} onChange={v=>setForm(f=>({...f,date:v}))}/>
         </div>
-        <Select label="Payment Method" value={form.method} onChange={v=>setForm({...form,method:v})} options={[{value:"Cash",label:"Cash"},{value:"UPI",label:"UPI"},{value:"Bank Transfer",label:"Bank Transfer"},{value:"Cheque",label:"Cheque"}]}/>
+        <Select label="Payment Method" value={form.method} onChange={v=>setForm(f=>({...f,method:v}))} options={[{value:"Cash",label:"Cash"},{value:"UPI",label:"UPI"},{value:"Bank Transfer",label:"Bank Transfer"},{value:"Cheque",label:"Cheque"}]}/>
         <div style={{display:"flex",gap:10,marginTop:6}}>
-          <Btn onClick={add} loading={loading} variant="success" style={{flex:1,justifyContent:"center"}}>✓ Record + WhatsApp</Btn>
+          <Btn onClick={add} loading={loading} variant="success" style={{flex:1,justifyContent:"center"}}>✓ Save & Send Receipt</Btn>
           <Btn variant="ghost" onClick={()=>setModal(false)} style={{flex:1,justifyContent:"center"}}>Cancel</Btn>
+        </div>
+      </Modal>
+
+      {/* API Key Setup Modal */}
+      <Modal open={keyModal} onClose={()=>setKeyModal(false)} title="🔑 WhatsApp API Keys">
+        <div style={{background:G.blueSoft,border:`1px solid ${G.blue}33`,borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+          <p style={{fontWeight:700,fontSize:13,color:G.blue,marginBottom:6}}>How to get your free API key</p>
+          <p style={{fontSize:12,color:G.textSecondary,lineHeight:1.6}}>
+            1. Open WhatsApp and message <b style={{color:G.textPrimary}}>+34 644 59 78 23</b>{"\n"}
+            2. Send: <b style={{color:G.accent}}>I allow callmebot to send me messages</b>{"\n"}
+            3. You'll receive your API key within 2 minutes{"\n"}
+            4. Enter the phone + key below and save
+          </p>
+          <button onClick={()=>wa.send("34644597823","I allow callmebot to send me messages")} style={{marginTop:10,background:G.blue+"22",border:`1px solid ${G.blue}44`,color:G.blue,borderRadius:8,padding:"7px 14px",fontSize:12,cursor:"pointer",fontWeight:700}}>💬 Open WhatsApp to Activate →</button>
+        </div>
+        <Input label="Member Mobile Number" value={keyPhone} onChange={setKeyPhone} placeholder="9XXXXXXXXX"/>
+        <Input label="CallMeBot API Key" value={keyValue} onChange={setKeyValue} placeholder="Paste key received from CallMeBot"/>
+        {/* Show all saved keys */}
+        {members.filter(m=>m.mobile&&cmb.hasKey(m.mobile)).length>0&&(
+          <div style={{marginBottom:14}}>
+            <p style={{fontSize:11,color:G.textSecondary,fontWeight:700,letterSpacing:1,marginBottom:8}}>SAVED KEYS</p>
+            {members.filter(m=>m.mobile&&cmb.hasKey(m.mobile)).map(m=>(
+              <div key={m._id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:`1px solid ${G.border}`}}>
+                <div><p style={{fontSize:13,fontWeight:700}}>{m.name}</p><p style={{fontSize:11,color:G.textSecondary}}>{m.mobile}</p></div>
+                <div style={{display:"flex",gap:6}}>
+                  <Badge color={G.accent}>✓ Active</Badge>
+                  <button onClick={()=>{setKeyPhone(m.mobile);setKeyValue(cmb.getKey(m.mobile));}} style={{background:G.surface,border:`1px solid ${G.border}`,color:G.textSecondary,borderRadius:6,padding:"3px 8px",fontSize:11,cursor:"pointer"}}>Edit</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{display:"flex",gap:10,marginTop:6}}>
+          <Btn onClick={()=>{if(!keyPhone||!keyValue){showToast("Phone and key required","error");return;}cmb.saveKey(keyPhone,keyValue);showToast("API key saved! Auto-receipts enabled.");setKeyModal(false);}} style={{flex:1,justifyContent:"center"}}>💾 Save Key</Btn>
+          <Btn variant="ghost" onClick={()=>setKeyModal(false)} style={{flex:1,justifyContent:"center"}}>Close</Btn>
         </div>
       </Modal>
     </div>
@@ -1304,7 +1474,7 @@ function App(){
     dashboard:<Dashboard groups={groups} members={members} collections={collections}/>,
     groups:<Groups groups={groups} setGroups={setGroups} {...sp}/>,
     members:<Members members={members} setMembers={setMembers} groups={groups} collections={collections} {...sp}/>,
-    collections:<Collections collections={collections} setCollections={setCollections} members={members} groups={groups} {...sp}/>,
+    collections:<Collections collections={collections} setCollections={setCollections} members={members} setMembers={setMembers} groups={groups} {...sp}/>,
     receipts:<Receipts collections={collections} showToast={showToast}/>,
     reminders:<WAReminders members={members} showToast={showToast}/>,
     reports:<Reports groups={groups} members={members} collections={collections}/>,
